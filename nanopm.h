@@ -507,7 +507,7 @@ class DistanceCache {
     min_distance_.setTo(-1.0f);
   }
 
-  const Image1f& min_distance() const { return min_distance_; }
+  Image1f& min_distance() { return min_distance_; }
   int patch_size() const { return patch_size_; }
   const Image3b* A() const { return A_; }
   const Image3b* B() const { return B_; }
@@ -590,8 +590,8 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
                 int B_y, int patch_size_x, int patch_size_y, float& val) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size_y + 1; j++) {
-    for (int i = 0; i < patch_size_x + 1; i++) {
+  for (int j = 0; j < patch_size_y; j++) {
+    for (int i = 0; i < patch_size_x; i++) {
       auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -613,8 +613,8 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
                 float current_min) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size_y + 1; j++) {
-    for (int i = 0; i < patch_size_x + 1; i++) {
+  for (int j = 0; j < patch_size_y; j++) {
+    for (int i = 0; i < patch_size_x; i++) {
       const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -666,7 +666,7 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
 
   std::array<float, 3> dist_list;
 
-  float current_dist = distance_cache.min_distance().at<float>(y, x);
+  float& current_dist = distance_cache.min_distance().at<float>(y, x);
   if (current_dist < 0.0f) {
     distance_cache.query(x, y, static_cast<int>(current_offset[0]),
                          static_cast<int>(current_offset[1]), current_dist,
@@ -680,35 +680,34 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
     bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
                                         x, y, x_max, y_max);
 
- distance_cache.query(x, y, static_cast<int>(offset_l[0]),
-                         static_cast<int>(offset_l[1]), dist_list[1], updated);
-#if 0
-				    if (gurded) {
+    float& current_l_dist = distance_cache.min_distance().at<float>(y, x - 1);
+
+    if (gurded || current_l_dist < 0.0f) {
       distance_cache.query(x, y, static_cast<int>(offset_l[0]),
                            static_cast<int>(offset_l[1]), dist_list[1],
                            updated);
     } else {
-      float dist = distance_cache.min_distance().at<float>(y, x - 1);
+      // integral image like technique described in "3.2 Iteration Efficiency."
 
       // substract left most col
       float l_dist;
       CalcDistance(*distance_cache.A(), x - 1, y, *distance_cache.B(),
-                   static_cast<int>(offset_l[0]), static_cast<int>(offset_l[1]),
-                   1, distance_cache.patch_size(),
-                   distance_cache.distance_type(), l_dist);
+                   static_cast<int>(offset_l[0]) + x - 1,
+                   static_cast<int>(offset_l[1]) + y, 1,
+                   distance_cache.patch_size(), distance_cache.distance_type(),
+                   l_dist);
 
       // add right col
       float r_dist;
-      CalcDistance(*distance_cache.A(), x + distance_cache.patch_size(), y,
-                   *distance_cache.B(),
-                   static_cast<int>(offset_l[0]), static_cast<int>(offset_l[1]),
-                   1, distance_cache.patch_size(),
-                   distance_cache.distance_type(), l_dist);
+      CalcDistance(
+          *distance_cache.A(), x + distance_cache.patch_size() - 1, y,
+          *distance_cache.B(),
+          static_cast<int>(offset_l[0]) + x + distance_cache.patch_size() - 1,
+          static_cast<int>(offset_l[1]) + y, 1, distance_cache.patch_size(),
+          distance_cache.distance_type(), r_dist);
 
-      dist_list[1] = dist - l_dist + r_dist;
+      dist_list[1] = current_l_dist - l_dist + r_dist;
     }
-#endif  // 0
-
 
   } else {
     dist_list[1] = std::numeric_limits<float>::max();
@@ -717,10 +716,38 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   Vec2f offset_u;
   if (y > 0) {
     offset_u = nnf.at<Vec2f>(y - 1, x);
-    UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(), x, y, x_max,
-                          y_max);
-    distance_cache.query(x, y, static_cast<int>(offset_u[0]),
-                         static_cast<int>(offset_u[1]), dist_list[2], updated);
+    bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
+                                        x, y, x_max, y_max);
+
+    float& current_u_dist = distance_cache.min_distance().at<float>(y - 1, x);
+
+    if (gurded || current_u_dist < 0.0f) {
+      distance_cache.query(x, y, static_cast<int>(offset_u[0]),
+                           static_cast<int>(offset_u[1]), dist_list[2],
+                           updated);
+
+    } else {
+      // integral image like technique described in "3.2 Iteration Efficiency."
+
+      // substract upper most col
+      float u_dist;
+      CalcDistance(*distance_cache.A(), x, y - 1, *distance_cache.B(),
+                   static_cast<int>(offset_u[0]) + x,
+                   static_cast<int>(offset_u[1]) + y - 1,
+                   distance_cache.patch_size(), 1,
+                   distance_cache.distance_type(), u_dist);
+
+      // add bottom col
+      float b_dist;
+      CalcDistance(
+          *distance_cache.A(), x, y + distance_cache.patch_size() - 1,
+          *distance_cache.B(), static_cast<int>(offset_u[0]) + x,
+          static_cast<int>(offset_u[1]) + y + distance_cache.patch_size() - 1,
+          distance_cache.patch_size(), 1, distance_cache.distance_type(),
+          b_dist);
+
+      dist_list[2] = current_u_dist - u_dist + b_dist;
+    }
   } else {
     dist_list[2] = std::numeric_limits<float>::max();
   }
@@ -730,8 +757,11 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
 
   if (min_index == 1) {
     current_offset = offset_l;
+    current_dist = dist_list[1];
+
   } else if (min_index == 2) {
     current_offset = offset_u;
+    current_dist = dist_list[2];
   }
 
   return true;
