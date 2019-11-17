@@ -515,16 +515,25 @@ class DistanceCache {
   DistanceType distance_type() const { return distance_type_; }
   bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
              bool& updated) {
-    // 1. check partial dist avairability
-    // 2. if avairalble use it and return
-    // 3. if no caluclate
-
     int B_x = A_x + x_offset;
     int B_y = A_y + y_offset;
 
     // new patch pair
     updated = false;
     float& current_dist = min_distance_.at<float>(A_y, A_x);
+
+#if 0
+    CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, patch_size_,
+                 distance_type_, dist);
+    if (dist < current_dist) {
+      current_dist = dist;
+      updated = true;
+    }
+
+#else
+    // with early termination
+    // todo: maybe slow by internal if
+
     if (current_dist < 0.0f) {
       // first calculation for A(x, y)
       CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, patch_size_,
@@ -532,6 +541,7 @@ class DistanceCache {
       current_dist = dist;
       updated = true;
     } else {
+      // early termination version
       bool ret = CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_,
                               patch_size_, distance_type_, dist, current_dist);
 
@@ -545,6 +555,8 @@ class DistanceCache {
         updated = true;
       }
     }
+#endif  // 0
+
     return true;
   }
 };
