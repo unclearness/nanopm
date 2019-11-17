@@ -445,7 +445,7 @@ struct Option {
   int patch_size = 7;
   int max_iter = 5;
 
-  float w = 7.0f;
+  float w = 16.0f;
   float alpha = 0.5f;
 
   InitType init_type = InitType::RANDOM;
@@ -462,15 +462,12 @@ struct Option {
 bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
              Image1f& distance, const Option& option);
 
-float CalcDistance(const Image3b& A, const Image3b& B, const Image2f& nnf,
-                   Image1f& distance, int x, int y, const Option& option);
-
 bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int half_patch_size, DistanceType distance_type,
+                  int B_y, int patch_size, DistanceType distance_type,
                   float& distance);
 
 bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int half_patch_size, DistanceType distance_type,
+                  int B_y, int patch_size, DistanceType distance_type,
                   float& distance, float current_min);
 
 bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
@@ -479,19 +476,10 @@ bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
 bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
          int half_patch_size, float& val, float current_min);
 
-#if 0
-				float SSD(const Image1b& A, int A_x, int A_y, const Image1b& B, int B_x,
-          int B_y, int half_patch_size);
-
-#endif  // 0
-
 class DistanceCache {
-  // data[i][j]: distance between index i of A and index j of B
-  // std::vector<std::unordered_map<int, float>> data_;
-
   const Image3b* A_;
   const Image3b* B_;
-  int half_patch_size_;
+  int patch_size_;
   Image1f min_distance_;
   DistanceType distance_type_;
 
@@ -500,46 +488,30 @@ class DistanceCache {
   DistanceCache(const DistanceCache& src) = delete;
   ~DistanceCache() = default;
   DistanceCache(const Image3b& A, const Image3b& B,
-                const DistanceType& distance_type, int half_patch_size)
-      : A_(&A),
-        B_(&B),
-        distance_type_(distance_type),
-        half_patch_size_(half_patch_size) {
-    // data_.resize(A_->cols * A_->rows);
-
+                const DistanceType& distance_type, int patch_size)
+      : A_(&A), B_(&B), distance_type_(distance_type), patch_size_(patch_size) {
     min_distance_ = Image1f::zeros(A_->rows, A_->cols);
     min_distance_.setTo(-1.0f);
   }
-#if 0
-				  DistanceCache(const Image1b& A_gray, const Image1b& B_gray,
-                const DistanceType& distance_type, int patch_size)
-      : A_gray_(&A_gray), B_gray_(&B_gray), distance_type_(distance_type), patch_size_(patch_size) {
-    data_.resize(A_gray_->cols * A_gray_->rows);
-  }
-#endif  // 0
 
   const Image1f& min_distance() { return min_distance_; }
-  int half_patch_size() { return half_patch_size_; }
+  int patch_size() { return patch_size_; }
   bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
              bool& updated) {
     int B_x = A_x + x_offset;
     int B_y = A_y + y_offset;
-    // todo: implement two methods described in 3.2 Iteration  Efficiency
-    // 1. early termination
-    // 2. summation truncation
-    // the second one could improve speed significantly...
 
     // new patch pair
     updated = false;
     float& current_dist = min_distance_.at<float>(A_y, A_x);
     if (current_dist < 0.0f) {
       // first calculation for A(x, y)
-      CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, half_patch_size_,
-                   distance_type_, dist);
+      CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, distance_type_,
+                   dist);
       current_dist = dist;
       updated = true;
     } else {
-      bool ret = CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, half_patch_size_,
+      bool ret = CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_,
                               distance_type_, dist, current_dist);
 
       if (!ret) {
@@ -566,43 +538,39 @@ bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
 bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                 std::default_random_engine& engine);
 
-inline float CalcDistance(const Image3b& A, const Image3b& B,
-                          const Image2f& nnf, Image1f& distance, int x, int y,
-                          const Option& option) {
-  float dist;
+void UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                           int x_max, int y_max);
 
-  return dist;
-}
+/* end of declation of interface */
 
+/* definition of interface */
 inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int half_patch_size,
+                         int B_x, int B_y, int patch_size,
                          DistanceType distance_type, float& distance) {
   if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, half_patch_size, distance);
+    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance);
   }
 
   return -9999.9f;
 }
 
 inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int half_patch_size,
+                         int B_x, int B_y, int patch_size,
                          DistanceType distance_type, float& distance,
                          float current_min) {
   if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, half_patch_size, distance,
-               current_min);
+    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance, current_min);
   }
 
   return -9999.9f;
 }
 
 inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int half_patch_size, float& val) {
-  int& h_ps = half_patch_size;
+                int B_y, int patch_size, float& val) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = -h_ps; j < h_ps + 1; j++) {
-    for (int i = -h_ps; i < h_ps + 1; i++) {
+  for (int j = 0; j < patch_size + 1; j++) {
+    for (int i = 0; i < patch_size + 1; i++) {
       auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -620,12 +588,11 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
 }
 
 inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int half_patch_size, float& val, float current_min) {
-  int& h_ps = half_patch_size;
+                int B_y, int patch_size, float& val, float current_min) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = -h_ps; j < h_ps + 1; j++) {
-    for (int i = -h_ps; i < h_ps + 1; i++) {
+  for (int j = 0; j < patch_size + 1; j++) {
+    for (int i = 0; i < patch_size + 1; i++) {
       const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -645,10 +612,28 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   return true;
 }
 
+inline void UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                                  int x_max, int y_max) {
+  int new_x = offset[0] + x;
+  if (new_x < 0) {
+    offset[0] = -x;
+  }
+  if (new_x > x_max - 1 - patch_size) {
+    offset[0] = x_max - 1 - patch_size - x;
+  }
+
+  int new_y = offset[1] + y;
+  if (new_y < 0) {
+    offset[1] = -y;
+  }
+  if (new_y > y_max - 1 - patch_size) {
+    offset[1] = y_max - 1 - patch_size - y;
+  }
+}
+
 inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
                         DistanceCache& distance_cache) {
   bool updated{false};
-  const int h_ps = distance_cache.half_patch_size();
 
   Vec2f& current_offset = nnf.at<Vec2f>(y, x);
 
@@ -662,36 +647,13 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   dist_list[0] = current_dist;
 
   Vec2f offset_r = nnf.at<Vec2f>(y, x - 1);
-  if (offset_r[0] + x < h_ps) {
-    offset_r[0] = h_ps - x;
-  }
-  if (offset_r[0] + x > x_max - h_ps - 1) {
-    offset_r[0] = x_max - h_ps - 1 - x;
-  }
-
-  if (offset_r[1] + y < h_ps) {
-    offset_r[1] = h_ps - y;
-  }
-  if (offset_r[1] + y > y_max - h_ps - 1) {
-    offset_r[1] = y_max - h_ps - 1 - y;
-  }
+  UpdateOffsetWithGuard(offset_r, distance_cache.patch_size(), x, y, x_max,
+                        y_max);
   distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
 
   Vec2f offset_u = nnf.at<Vec2f>(y - 1, x);
-
-  if (offset_u[0] + x < h_ps) {
-    offset_u[0] = h_ps - x;
-  }
-  if (offset_u[0] + x > x_max - h_ps - 1) {
-    offset_u[0] = x_max - h_ps - 1 - x;
-  }
-
-  if (offset_u[1] + y < h_ps) {
-    offset_u[1] = h_ps - y;
-  }
-  if (offset_u[1] + y > y_max - h_ps - 1) {
-    offset_u[1] = y_max - h_ps - 1 - y;
-  }
+  UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(), x, y, x_max,
+                        y_max);
   distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
 
   auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
@@ -718,27 +680,8 @@ inline bool RandomSearch(
   update[0] += offset_x;
   update[1] += offset_y;
 
-  float h_ps = static_cast<float>(distance_cache.half_patch_size());
-#if 0
-				  update[0] =
-      std::max(h_ps, std::min(update[0], static_cast<float>(x_max - h_ps - 1)));
-  update[1] =
-      std::max(h_ps, std::min(update[1], static_cast<float>(y_max - h_ps - 1)));
-
-#endif  // 0
-  if (update[0] + x < h_ps) {
-    update[0] = h_ps - x;
-  }
-  if (update[0] + x > x_max - h_ps - 1) {
-    update[0] = x_max - h_ps - 1 - x;
-  }
-
-  if (update[1] + y < h_ps) {
-    update[1] = h_ps - y;
-  }
-  if (update[1] + y > y_max - h_ps - 1) {
-    update[1] = y_max - h_ps - 1 - y;
-  }
+  UpdateOffsetWithGuard(update, distance_cache.patch_size(), x, y, x_max,
+                        y_max);
 
   float dist;
   bool updated{false};
@@ -752,15 +695,13 @@ inline bool RandomSearch(
   return false;
 }
 
-/* definition of interface */
 inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                        std::default_random_engine& engine) {
   if (option.init_type == InitType::RANDOM) {
-    int h_ps = option.patch_size / 2;
-    std::uniform_int_distribution<> dist_w(h_ps, B_w - 1 - h_ps);
-    std::uniform_int_distribution<> dist_h(h_ps, B_h - 1 - h_ps);
-    for (int j = h_ps; j < nnf.rows - h_ps; j++) {
-      for (int i = h_ps; i < nnf.cols - h_ps; i++) {
+    std::uniform_int_distribution<> dist_w(0, B_w - 1 - option.patch_size);
+    std::uniform_int_distribution<> dist_h(0, B_h - 1 - option.patch_size);
+    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
         Vec2f& val = nnf.at<Vec2f>(j, i);
         val[0] = dist_w(engine) - i;
         val[1] = dist_h(engine) - j;
@@ -784,16 +725,14 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   // initialize
   Initialize(nnf, B.cols, B.rows, option, engine);
   // return true;
-  DistanceCache distance_cache(A, B, option.distance_type,
-                               option.patch_size / 2);
+  DistanceCache distance_cache(A, B, option.distance_type, option.patch_size);
 
   // iteration
   for (int iter = 0; iter < option.max_iter; iter++) {
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
     printf("iter %d radious %f \n", iter, radius);
-    const int h_ps = option.patch_size / 2;
-    for (int j = h_ps; j < nnf.rows - h_ps; j++) {
-      for (int i = h_ps; i < nnf.cols - h_ps; i++) {
+    for (int j = 1; j < nnf.rows - option.patch_size; j++) {
+      for (int i = 1; i < nnf.cols - option.patch_size; i++) {
         // Propagation
         Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
 
@@ -812,7 +751,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
 inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
                         float max_mag = 100.0f, float min_mag = 0.0f,
-                        unsigned char v = 200) {
+                        unsigned char v = 255) {
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 

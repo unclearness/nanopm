@@ -19,9 +19,6 @@ int main(int argc, char* argv[]) {
   nanopm::Image2f nnf;
   nanopm::Image1f distance;
   nanopm::Option option;
-  option.max_iter = 5;
-  option.patch_size = 15;
-  option.w = std::pow(2.0f, option.max_iter-1);
   nanopm::Compute(A, B, nnf, distance, option);
 
   nanopm::Image3b vis_nnf, vis_distance;
