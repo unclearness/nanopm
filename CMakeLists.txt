@@ -85,19 +85,19 @@ if(NANOPM_USE_OPENMP)
   endif()
 endif()
 
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 include_directories(${STB_INSTALL_DIR})
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 if (NOT hasParent)
-  set(MINIMUM_EXAMPLE_EXE example)
-  add_executable(${MINIMUM_EXAMPLE_EXE}
-    example.cc)
-  target_link_libraries(${MINIMUM_EXAMPLE_EXE}
+  add_executable(dense_optical_flow
+    example/dense_optical_flow.cc)
+  target_link_libraries(dense_optical_flow
   ${OpenCV_LIBS}
   )
 endif()
 
 if (WIN32)
-  set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT ${EXAMPLES_EXE})
+  #set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT ${EXAMPLES_EXE})
 endif()
 

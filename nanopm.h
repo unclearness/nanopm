@@ -5,6 +5,9 @@
 
 #pragma once
 
+#define _USE_MATH_DEFINES
+#include <cmath>
+
 #include <array>
 #include <random>
 #include <unordered_map>
@@ -32,6 +35,7 @@
 
 #ifdef NANOPM_USE_OPENCV
 #include "opencv2/imgcodecs.hpp"
+#include "opencv2/imgproc.hpp"
 #endif
 
 namespace nanopm {
@@ -515,6 +519,7 @@ class DistanceCache {
 #endif  // 0
 
   const Image1f& min_distance() { return min_distance_; }
+  int half_patch_size() { return half_patch_size_; }
   bool query(int A_x, int A_y, int B_x, int B_y, float& dist, bool& updated) {
     int A_index = A_y * A_->cols + A_x;
     int B_index = B_y * B_->cols + B_x;
@@ -552,8 +557,9 @@ class DistanceCache {
 
 bool Propagation(Image2f& nnf, int x, int y, DistanceCache& distance_cache);
 
-bool RandomSearch(Image2f& nnf, int x, int y, DistanceCache& distance_cache,
-                  float radius, std::default_random_engine& engine,
+bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
+                  DistanceCache& distance_cache, float radius,
+                  std::default_random_engine& engine,
                   std::uniform_real_distribution<float>& distribution_rs);
 
 bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
@@ -619,8 +625,8 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   const float frac = 1.0f / 3.0f;
   for (int j = -h_ps; j < h_ps + 1; j++) {
     for (int i = -h_ps; i < h_ps + 1; i++) {
-      auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
-      auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
+      const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
+      const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
 
       for (int c = 0; c < 3; c++) {
@@ -678,7 +684,8 @@ inline bool Propagation(Image2f& nnf, int x, int y,
 }
 
 inline bool RandomSearch(
-    Image2f& nnf, int x, int y, DistanceCache& distance_cache, float radius,
+    Image2f& nnf, int x, int y, int x_max, int y_max,
+    DistanceCache& distance_cache, float radius,
     std::default_random_engine& engine,
     std::uniform_real_distribution<float>& distribution_rs) {
   Vec2f& current = nnf.at<Vec2f>(y, x);
@@ -688,21 +695,31 @@ inline bool RandomSearch(
   update[0] += offset_x;
   update[1] += offset_y;
 
+  float h_ps = static_cast<float>(distance_cache.half_patch_size());
+  update[0] =
+      std::max(h_ps, std::min(update[0], static_cast<float>(x_max - h_ps - 1)));
+  update[1] =
+      std::max(h_ps, std::min(update[1], static_cast<float>(y_max - h_ps - 1)));
+
   float dist;
   bool updated{false};
   distance_cache.query(x, y, update[0], update[1], dist, updated);
 
   if (updated) {
     current = update;
+    return true;
   }
+
+  return false;
 }
 
 /* definition of interface */
 inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                        std::default_random_engine& engine) {
   if (option.init_type == InitType::RANDOM) {
-    std::uniform_int_distribution<> dist_w(0, B_w - 1);
-    std::uniform_int_distribution<> dist_h(0, B_h - 1);
+    int h_ps = option.patch_size / 2;
+    std::uniform_int_distribution<> dist_w(h_ps, B_w - 1 - h_ps);
+    std::uniform_int_distribution<> dist_h(h_ps, B_h - 1 - h_ps);
     for (int j = 0; j < nnf.rows; j++) {
       for (int i = 0; i < nnf.cols; i++) {
         Vec2f& val = nnf.at<Vec2f>(j, i);
@@ -741,15 +758,116 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
         Propagation(nnf, i, j, distance_cache);
 
         // Random search
-        RandomSearch(nnf, i, j, distance_cache, radius, engine,
+        RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius, engine,
                      distribution_rs);
       }
     }
   }
 
+  distance = Image1f::zeros(A.rows, A.cols);
+  distance_cache.min_distance().copyTo(distance);
+
   return true;
 }
 
-inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf) { return true; }
+inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
+                        float max_mag = 100.0f, float min_mag = 0.0f,
+                        unsigned char v = 200) {
+  // const float* data = reinterpret_cast<float*>(distance.data);
+  // const int size = distance.cols * distance.rows;
+  // const float max_d = *std::max_element(data, data + size);
+  // const float min_d = *std::min_element(data, data + size);
+
+  Image3b vis_nnf_hsv;
+  vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
+
+  float inv_2pi = 1.0f / (2 * M_PI);
+  float inv_mag_factor = 1.0f / (max_mag - min_mag);
+  for (int y = 0; y < vis_nnf_hsv.rows; y++) {
+    for (int x = 0; x < vis_nnf_hsv.cols; x++) {
+      const Vec2f& nn = nnf.at<Vec2f>(y, x);
+
+      float angle = std::atan2(nn[1], nn[0]) + M_PI;
+      float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
+      printf("angle %f\n", angle * inv_2pi * 360);
+      printf("magnitude %f\n", magnitude);
+      float norm_magnitude = std::max(
+          0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
+
+      Vec3b& hsv = vis_nnf_hsv.at<Vec3b>(y, x);
+      hsv[0] = static_cast<unsigned char>(angle * inv_2pi * 180);
+      hsv[1] = static_cast<unsigned char>(norm_magnitude * 255);
+      hsv[2] = v;
+    }
+  }
+
+  cv::cvtColor(vis_nnf_hsv, vis_nnf, cv::COLOR_HSV2BGR);
+
+  return true;
+}
+
+#ifdef NANOPM_USE_TINYCOLORMAP
+inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
+                             tinycolormap::ColormapType type) {
+  const float* data = reinterpret_cast<float*>(distance.data);
+  const int size = distance.cols * distance.rows;
+  const float max_d = *std::max_element(data, data + size);
+  const float min_d = *std::min_element(data, data + size);
+
+  vis_distance = Image3b::zeros(distance.rows, distance.cols);
+
+  float inv_denom = 1.0f / (max_d - min_d);
+  for (int y = 0; y < vis_distance.rows; y++) {
+    for (int x = 0; x < vis_distance.cols; x++) {
+      const float& d = distance.at<float>(y, x);
+
+      float norm_color = (d - min_d) * inv_denom;
+      norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
+
+      const tinycolormap::Color& color =
+          tinycolormap::GetColor(norm_color, type);
+
+      Vec3b& vis = vis_distance.at<Vec3b>(y, x);
+#ifdef NANOPM_USE_OPENCV
+      // BGR
+      vis[2] = static_cast<uint8_t>(color.r() * 255);
+      vis[1] = static_cast<uint8_t>(color.g() * 255);
+      vis[0] = static_cast<uint8_t>(color.b() * 255);
+#else
+      // RGB
+      vis[0] = static_cast<uint8_t>(color.r() * 255);
+      vis[1] = static_cast<uint8_t>(color.g() * 255);
+      vis[2] = static_cast<uint8_t>(color.b() * 255);
+#endif
+    }
+  }
+}
+#else
+inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
+  const float* data = reinterpret_cast<float*>(distance.data);
+  const int size = distance.cols * distance.rows;
+  const float max_d = *std::max_element(data, data + size);
+  const float min_d = *std::min_element(data, data + size);
+
+  vis_distance = Image3b::zeros(distance.rows, distance.cols);
+
+  float inv_denom = 1.0f / (max_d - min_d);
+  for (int y = 0; y < vis_distance.rows; y++) {
+    for (int x = 0; x < vis_distance.cols; x++) {
+      const float& d = distance.at<float>(y, x);
+
+      float norm_color = (d - min_d) * inv_denom;
+      norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
+
+      Vec3b& vis = vis_distance.at<Vec3b>(y, x);
+
+      vis[2] = static_cast<uint8_t>(norm_color * 255);
+      vis[1] = static_cast<uint8_t>(norm_color * 255);
+      vis[0] = static_cast<uint8_t>(norm_color * 255);
+    }
+  }
+  return true;
+}
+#endif
 
 }  // namespace nanopm
