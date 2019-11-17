@@ -461,6 +461,12 @@ struct Option {
 bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
              Image1f& distance, const Option& option);
 
+// 3 channel only
+// float* nnf and float* distance must be allocated by caller
+bool Compute(const unsigned char* A, int A_w, int A_h, const unsigned char* B,
+             int B_w, int B_h, float* nnf, float* distance,
+             const Option& option);
+
 bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
                   int B_y, int patch_size, DistanceType distance_type,
                   float& distance);
@@ -727,6 +733,28 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
   return true;
 }
 
+inline bool Compute(const unsigned char* A, int A_w, int A_h,
+                    const unsigned char* B, int B_w, int B_h, float* nnf,
+                    float* distance, const Option& option) {
+  Image2f nnf_;
+  Image1f distance_;
+
+  Image3b A_, B_;
+  A_ = Image3b::zeros(A_h, A_w);
+  std::memcpy(A_.data, A, sizeof(unsigned char) * 3 * A_w * A_h);
+
+  B_ = Image3b::zeros(B_h, B_w);
+  std::memcpy(B_.data, B, sizeof(unsigned char) * 3 * B_w * B_h);
+
+  bool ret = Compute(A_, B_, nnf_, distance_, option);
+
+  std::memcpy(nnf, reinterpret_cast<float*>(nnf_.data),
+              sizeof(float) * nnf_.cols * nnf_.rows);
+  std::memcpy(distance, reinterpret_cast<float*>(distance_.data),
+              sizeof(float) * distance_.cols * distance_.rows);
+  return ret;
+}
+
 inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
                     Image1f& distance, const Option& option) {
   std::default_random_engine engine(option.random_seed);
@@ -849,17 +877,12 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
     max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
   }
 
-  // printf("max distance %f\n", max_d);
-  // printf("min distance %f\n", min_d);
-
   vis_distance = Image3b::zeros(distance.rows, distance.cols);
 
   float inv_denom = 1.0f / (max_d - min_d);
   for (int y = 0; y < vis_distance.rows; y++) {
     for (int x = 0; x < vis_distance.cols; x++) {
       const float& d = distance.at<float>(y, x);
-
-      // printf("distance %f\n", d);
 
       float norm_color = (d - min_d) * inv_denom;
       norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
