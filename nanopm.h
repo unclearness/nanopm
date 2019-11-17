@@ -646,21 +646,31 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   }
   dist_list[0] = current_dist;
 
-  Vec2f offset_r = nnf.at<Vec2f>(y, x - 1);
-  UpdateOffsetWithGuard(offset_r, distance_cache.patch_size(), x, y, x_max,
-                        y_max);
-  distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
+  Vec2f offset_l;
+  if (x > 0) {
+    offset_l = nnf.at<Vec2f>(y, x - 1);
+    UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(), x, y, x_max,
+                          y_max);
+    distance_cache.query(x, y, offset_l[0], offset_l[1], dist_list[1], updated);
+  } else {
+    dist_list[1] = std::numeric_limits<float>::max();
+  }
 
-  Vec2f offset_u = nnf.at<Vec2f>(y - 1, x);
-  UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(), x, y, x_max,
-                        y_max);
-  distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
+  Vec2f offset_u;
+  if (y > 0) {
+    offset_u = nnf.at<Vec2f>(y - 1, x);
+    UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(), x, y, x_max,
+                          y_max);
+    distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
+  } else {
+    dist_list[2] = std::numeric_limits<float>::max();
+  }
 
   auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
   size_t min_index = std::distance(dist_list.begin(), min_iter);
 
   if (min_index == 1) {
-    current_offset = offset_r;
+    current_offset = offset_l;
   } else if (min_index == 2) {
     current_offset = offset_u;
   }
@@ -731,8 +741,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   for (int iter = 0; iter < option.max_iter; iter++) {
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
     printf("iter %d radious %f \n", iter, radius);
-    for (int j = 1; j < nnf.rows - option.patch_size; j++) {
-      for (int i = 1; i < nnf.cols - option.patch_size; i++) {
+    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
         // Propagation
         Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
 
