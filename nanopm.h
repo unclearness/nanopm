@@ -520,9 +520,12 @@ class DistanceCache {
 
   const Image1f& min_distance() { return min_distance_; }
   int half_patch_size() { return half_patch_size_; }
-  bool query(int A_x, int A_y, int B_x, int B_y, float& dist, bool& updated) {
-    int A_index = A_y * A_->cols + A_x;
-    int B_index = B_y * B_->cols + B_x;
+  bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
+             bool& updated) {
+    // int A_index = A_y * A_->cols + A_x;
+    // int B_index = B_y * B_->cols + B_x;
+    int B_x = A_x + x_offset;
+    int B_y = A_y + y_offset;
     // todo: implement two methods described in 3.2 Iteration  Efficiency
     // 1. early termination
     // 2. summation truncation
@@ -661,23 +664,45 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
 }
 #endif  // 0
 
-inline bool Propagation(Image2f& nnf, int x, int y,
+inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
                         DistanceCache& distance_cache) {
-  std::array<float, 3> dist_list;
-  dist_list[0] = distance_cache.min_distance().at<float>(y, x);
-  Vec2f& offset_r = nnf.at<Vec2f>(y, x - 1);
   bool updated{false};
-  distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
+  const int h_ps = distance_cache.half_patch_size();
+
+  Vec2f& current_offset = nnf.at<Vec2f>(y, x);
+
+  std::array<float, 3> dist_list;
+
+  float current_dist = distance_cache.min_distance().at<float>(y, x);
+  if (current_dist < 0.0f) {
+    distance_cache.query(x, y, current_offset[0], current_offset[1],
+                         current_dist, updated);
+  }
+  dist_list[0] = current_dist;
+
+  Vec2f& offset_r = nnf.at<Vec2f>(y, x - 1);
+  if (offset_r[0] + x - h_ps > 0 && offset_r[0] + x + h_ps < x_max &&
+      offset_r[1] + y - h_ps > 0 && offset_r[1] + y + h_ps < y_max) {
+    distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
+  } else {
+    dist_list[1] = std::numeric_limits<float>::max();
+  }
+
   Vec2f& offset_u = nnf.at<Vec2f>(y - 1, x);
-  distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
+  if (offset_u[0] + x - h_ps > 0 && offset_u[0] + x + h_ps < x_max &&
+      offset_u[1] + y - h_ps > 0 && offset_u[1] + y + h_ps < y_max) {
+    distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
+  } else {
+    dist_list[2] = std::numeric_limits<float>::max();
+  }
 
   auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
   size_t min_index = std::distance(dist_list.begin(), min_iter);
 
   if (min_index == 1) {
-    nnf.at<Vec2f>(y, x) = offset_r;
+    current_offset = offset_r;
   } else if (min_index == 2) {
-    nnf.at<Vec2f>(y, x) = offset_u;
+    current_offset = offset_u;
   }
 
   return true;
@@ -696,10 +721,26 @@ inline bool RandomSearch(
   update[1] += offset_y;
 
   float h_ps = static_cast<float>(distance_cache.half_patch_size());
-  update[0] =
+#if 0
+				  update[0] =
       std::max(h_ps, std::min(update[0], static_cast<float>(x_max - h_ps - 1)));
   update[1] =
       std::max(h_ps, std::min(update[1], static_cast<float>(y_max - h_ps - 1)));
+
+#endif  // 0
+  if (update[0] + x < h_ps) {
+    update[0] = h_ps - x;
+  }
+  if (update[0] + x > x_max - h_ps - 1) {
+    update[0] = x_max - h_ps - 1 - x;
+  }
+
+  if (update[1] + y < h_ps) {
+    update[1] = h_ps - y;
+  }
+  if (update[1] + y > y_max - h_ps - 1) {
+    update[1] = y_max - h_ps - 1 - y;
+  }
 
   float dist;
   bool updated{false};
@@ -720,11 +761,11 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
     int h_ps = option.patch_size / 2;
     std::uniform_int_distribution<> dist_w(h_ps, B_w - 1 - h_ps);
     std::uniform_int_distribution<> dist_h(h_ps, B_h - 1 - h_ps);
-    for (int j = 0; j < nnf.rows; j++) {
-      for (int i = 0; i < nnf.cols; i++) {
+    for (int j = h_ps; j < nnf.rows - h_ps; j++) {
+      for (int i = h_ps; i < nnf.cols - h_ps; i++) {
         Vec2f& val = nnf.at<Vec2f>(j, i);
-        val[0] = dist_w(engine);
-        val[1] = dist_h(engine);
+        val[0] = dist_w(engine) - i;
+        val[1] = dist_h(engine) - j;
       }
     }
   } else {
@@ -744,18 +785,18 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
   // initialize
   Initialize(nnf, B.cols, B.rows, option, engine);
-
   DistanceCache distance_cache(A, B, option.distance_type,
                                option.patch_size / 2);
 
   // iteration
   for (int iter = 0; iter < option.max_iter; iter++) {
+    printf("iter %d\n", iter);
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
     const int h_ps = option.patch_size / 2;
     for (int j = h_ps; j < nnf.rows - h_ps; j++) {
       for (int i = h_ps; i < nnf.cols - h_ps; i++) {
         // Propagation
-        Propagation(nnf, i, j, distance_cache);
+        Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
 
         // Random search
         RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius, engine,
@@ -789,13 +830,13 @@ inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
 
       float angle = std::atan2(nn[1], nn[0]) + M_PI;
       float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
-      printf("angle %f\n", angle * inv_2pi * 360);
-      printf("magnitude %f\n", magnitude);
+      //printf("angle %f\n", angle * inv_2pi * 360);
+      //printf("magnitude %f\n", magnitude);
       float norm_magnitude = std::max(
           0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
 
       Vec3b& hsv = vis_nnf_hsv.at<Vec3b>(y, x);
-      hsv[0] = static_cast<unsigned char>(angle * inv_2pi * 180);
+      hsv[0] = static_cast<unsigned char>(angle * inv_2pi * 179);
       hsv[1] = static_cast<unsigned char>(norm_magnitude * 255);
       hsv[2] = v;
     }
