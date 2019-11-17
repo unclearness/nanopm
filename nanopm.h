@@ -6,6 +6,8 @@
 #pragma once
 
 #include <array>
+#include <random>
+#include <unordered_map>
 #include <vector>
 
 #ifdef NANOPM_USE_STB
@@ -52,6 +54,8 @@ using Vec1v = unsigned char;
 using Vec1f = float;
 using Vec1i = int;
 using Vec1w = std::uint16_t;
+using Vec2i = cv::Vec2i;
+using Vec2f = cv::Vec2f;
 using Vec3f = cv::Vec3f;
 using Vec3b = cv::Vec3b;
 
@@ -108,7 +112,7 @@ class Image {
   int channels_{std::tuple_size<T>::value};
   int width_{-1};
   int height_{-1};
-  std::shared_ptr<std::vector<T> > data_{nullptr};
+  std::shared_ptr<std::vector<T>> data_{nullptr};
 
   void Init(int width, int height) {
     if (width < 1 || height < 1) {
@@ -420,6 +424,19 @@ bool ConvertTo(const Image<T>& src, Image<TT>* dst, float scale = 1.0f) {
 
 /* declation of interface */
 
+enum class InitType {
+  RANDOM,         // independent pixel-wise random initialization by uniform
+                  // distribution.
+  INITIAL,        // use initial.
+  INITIAL_RANDOM  // use initial and random. described in "3.1 Initialization"
+                  // of the original paper.
+};
+
+enum class DistanceType {
+  SSD,  // Sum of Squared Difference(SSD)
+  SAD   // Sum of Abusolute Difference(SAD)
+};
+
 struct Option {
   int patch_size = 7;
   int max_iter = 5;
@@ -427,24 +444,314 @@ struct Option {
   float w = 7.0f;
   float alpha = 0.5f;
 
+  InitType init_type = InitType::RANDOM;
+  Image2f initial;
+  int initial_random_iter = 5;
+
+  size_t random_seed = 0;  // for repeatability
+
+  DistanceType distance_type = DistanceType::SSD;
+
   bool verbose = true;
 };
 
 bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
-             const Option& option);
+             Image1f& distance, const Option& option);
+
+float CalcDistance(const Image3b& A, const Image3b& B, const Image2f& nnf,
+                   Image1f& distance, int x, int y, const Option& option);
+
+bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                  int B_y, int half_patch_size, DistanceType distance_type,
+                  float& distance);
+
+bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                  int B_y, int half_patch_size, DistanceType distance_type,
+                  float& distance, float current_min);
+
+bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
+         int half_patch_size, float& val);
+
+bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
+         int half_patch_size, float& val, float current_min);
+
+#if 0
+				float SSD(const Image1b& A, int A_x, int A_y, const Image1b& B, int B_x,
+          int B_y, int half_patch_size);
+
+#endif  // 0
 
 
+
+class DistanceCache {
+  // data[i][j]: distance between index i of A and index j of B
+  std::vector<std::unordered_map<int, float>> data_;
+
+  const Image3b* A_;
+  const Image3b* B_;
+  int half_patch_size_;
+  Image1f distance_;
+  DistanceType distance_type_;
+
+ public:
+  DistanceCache() = delete;
+  DistanceCache(const DistanceCache& src) = delete;
+  ~DistanceCache() = default;
+  DistanceCache(const Image3b& A, const Image3b& B,
+                const DistanceType& distance_type, int half_patch_size)
+      : A_(&A),
+        B_(&B),
+        distance_type_(distance_type),
+        half_patch_size_(half_patch_size) {
+    data_.resize(A_->cols * A_->rows);
+
+    distance_ = Image1f::zeros(A_->rows, A_->cols);
+    distance_.setTo(-1.0f);
+  }
+#if 0
+				  DistanceCache(const Image1b& A_gray, const Image1b& B_gray,
+                const DistanceType& distance_type, int patch_size)
+      : A_gray_(&A_gray), B_gray_(&B_gray), distance_type_(distance_type), patch_size_(patch_size) {
+    data_.resize(A_gray_->cols * A_gray_->rows);
+  }
+#endif  // 0
+
+  bool query(int A_x, int A_y, int B_x, int B_y, float& dist) {
+    int A_index = A_y * A_->cols + A_x;
+    int B_index = B_y * B_->cols + B_x;
+    auto& A_dist = data_[A_index];
+    auto& iter = A_dist.find(B_index);
+    if (iter == A_dist.end()) {
+      // todo: implement two methods described in 3.2 Iteration  Efficiency
+      // 1. early termination
+      // 2. summation truncation
+      // the second one could improve speed significantly...
+ 
+      // new patch pair
+      float& current_dist =
+          distance_.at<float>(A_y, A_x);
+      if (current_dist < 0.0f) {
+        // first calculation for A(x, y)
+        CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, half_patch_size_,
+                            distance_type_, dist);
+        current_dist = dist;
+      } else {
+        bool ret = CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, half_patch_size_,
+                     distance_type_, dist, current_dist);
+        if (ret) {
+          current_dist = dist;
+        }
+      }
+
+      // add to cache data
+      A_dist[B_index] = dist;
+
+      return false;
+    }
+
+    // exists
+    dist = iter->second;
+    return true;
+  }
+#if 0
+				  bool query(int A_index, int B_index, float& dist) {
+    auto& A_dist = data_[A_index];
+    auto& iter = A_dist.find(B_index);
+    if (iter == A_dist.end()) {
+      // new patch pair
+      dist =
+          CalcDistance(*A_gray_, A_index, *B_gray_, B_index, patch_size_, distance_type_);
+
+      // add to cache data
+      A_dist[B_index] = dist;
+
+      return false;
+    }
+
+    // exists
+    dist = iter->second;
+    return true;
+  }
+#endif  // 0
+};
+
+bool Propagation(Image2f& nnf, Image1f& distance, int x, int y,
+                 DistanceCache& distance_cache);
+
+bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
+                const std::default_random_engine& engine);
+
+inline float CalcDistance(const Image3b& A, const Image3b& B,
+                          const Image2f& nnf, Image1f& distance, int x, int y,
+                          const Option& option) {
+  float dist;
+
+  return dist;
+}
+
+inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                          int B_x, int B_y, int half_patch_size,
+                          DistanceType distance_type, float& distance) {
+  if (distance_type == DistanceType::SSD) {
+    return SSD(A, A_x, A_y, B, B_x, B_y, half_patch_size, distance);
+  }
+
+  return -9999.9f;
+}
+
+inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                         int B_x, int B_y, int half_patch_size,
+                         DistanceType distance_type, float& distance,
+                         float current_min) {
+  if (distance_type == DistanceType::SSD) {
+    return SSD(A, A_x, A_y, B, B_x, B_y, half_patch_size, distance, current_min);
+  }
+
+  return -9999.9f;
+}
+
+inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                 int B_y, int half_patch_size, float& val) {
+  int& h_ps = half_patch_size;
+  val = 0.0f;
+  const float frac = 1.0f / 3.0f;
+  for (int j = -h_ps; j < h_ps + 1; j++) {
+    for (int i = -h_ps; i < h_ps + 1; i++) {
+      auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
+      auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
+      std::array<float, 3> diff_list;
+
+      for (int c = 0; c < 3; c++) {
+        diff_list[c] = A_val[c] - B_val[c];
+      }
+
+      // average of 3 channels
+      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
+      val += (diff * diff);
+    }
+  }
+  return true;
+}
+
+inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                int B_y, int half_patch_size, float& val, float current_min) {
+  int& h_ps = half_patch_size;
+  val = 0.0f;
+  const float frac = 1.0f / 3.0f;
+  for (int j = -h_ps; j < h_ps + 1; j++) {
+    for (int i = -h_ps; i < h_ps + 1; i++) {
+      auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
+      auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
+      std::array<float, 3> diff_list;
+
+      for (int c = 0; c < 3; c++) {
+        diff_list[c] = A_val[c] - B_val[c];
+      }
+
+      // average of 3 channels
+      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
+      val += (diff * diff);
+      if (val > current_min) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+#if 0
+				inline float SSD(const Image1b& A, int A_x, int A_y, const Image1b& B, int B_x,
+                 int B_y, int half_patch_size) {
+  int& h_ps = half_patch_size;
+  float ssd = 0.0f;
+  for (int j = -h_ps; j < h_ps + 1; j++) {
+    for (int i = -h_ps; i < h_ps + 1; i++) {
+      unsigned char A_val = A.at<unsigned char>(A_y + j, A_x + i);
+      unsigned char B_val = B.at<unsigned char>(B_y + j, B_x + i);
+      float diff = A_val - B_val;
+      ssd += (diff * diff);
+    }
+  }
+  return ssd;
+}
+#endif  // 0
+
+
+
+inline bool Propagation(Image2f& nnf, Image1f& distance, int x, int y,
+                        DistanceCache& distance_cache) {
+  std::array<float, 3> dist_list;
+  dist_list[0] = distance.at<float>(y, x);
+  Vec2f& offset_r = nnf.at<Vec2f>(y, x - 1);
+  distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1]);
+  Vec2f& offset_u = nnf.at<Vec2f>(y - 1, x);
+  distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2]);
+
+  auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
+  size_t min_index = std::distance(dist_list.begin(), min_iter);
+
+  if (min_index == 1) {
+    nnf.at<Vec2f>(y, x) = offset_r;
+    distance.at<float>(y, x) = dist_list[1];
+  } else if (min_index == 2) {
+    nnf.at<Vec2f>(y, x) = offset_u;
+    distance.at<float>(y, x) = dist_list[2];
+  }
+
+  return true;
+}
 
 /* definition of interface */
+inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
+                       std::default_random_engine& engine) {
+  if (option.init_type == InitType::RANDOM) {
+    std::uniform_int_distribution<> dist_w(0, B_w - 1);
+    std::uniform_int_distribution<> dist_h(0, B_h - 1);
+    for (int j = 0; j < nnf.rows; j++) {
+      for (int i = 0; i < nnf.cols; i++) {
+        Vec2f& val = nnf.at<Vec2f>(j, i);
+        val[0] = dist_w(engine);
+        val[1] = dist_h(engine);
+      }
+    }
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
 inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
-  const Option& option) {
+                    Image1f& distance, const Option& option) {
+  std::default_random_engine engine(option.random_seed);
+
+  // memory allocation of nnf
+  nnf = Image2f::zeros(A.rows, A.cols);
+
+  // initialize
+  Initialize(nnf, B.cols, B.rows, option, engine);
+
+  DistanceCache distance_cache(A, B, option.distance_type,
+                               option.patch_size / 2);
+
+  // distance calculation over image
+
+  // iteration
+  for (int iter = 0; iter < option.max_iter; iter++) {
+    const int h_ps = option.patch_size / 2;
+    for (int j = h_ps; j < nnf.rows - h_ps; j++) {
+      for (int i = h_ps; i < nnf.cols - h_ps; i++) {
+        // Propagation
+        Propagation(nnf, distance, i, j, distance_cache);
+
+        // Random search
+      }
+    }
+  }
 
   return true;
 }
 
-inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf) {
-
-  return true;
-}
+inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf) { return true; }
 
 }  // namespace nanopm
