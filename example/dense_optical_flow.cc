@@ -48,12 +48,12 @@ int main(int argc, char* argv[]) {
   (void)argc;
   (void)argv;
 
-  std::string data_dir = "../data/";
+  std::string data_dir = "../data/scenes2005/Art/";
 
   nanopm::Image3b A = nanopm::imread<nanopm::Image3b>(
-      data_dir + "1.jpg", nanopm::ImreadModes::IMREAD_COLOR);
+      data_dir + "view1.png", nanopm::ImreadModes::IMREAD_COLOR);
   nanopm::Image3b B = nanopm::imread<nanopm::Image3b>(
-      data_dir + "2.jpg", nanopm::ImreadModes::IMREAD_COLOR);
+      data_dir + "view5.png", nanopm::ImreadModes::IMREAD_COLOR);
 
   nanopm::Image2f nnf;
   nanopm::Image1f distance;
