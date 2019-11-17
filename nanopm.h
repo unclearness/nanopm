@@ -1,6 +1,13 @@
 /*
  * Copyright (C) 2019, unclearness
  * All rights reserved.
+ *
+ * NanoPM, single header only PatchMatch
+ *
+ * Reference
+ *  - Barnes, Connelly, et al. "PatchMatch: A randomized correspondence
+ * algorithm for structural image editing." ACM Transactions on Graphics (ToG).
+ * Vol. 28. No. 3. ACM, 2009.
  */
 
 #pragma once
@@ -468,18 +475,19 @@ bool Compute(const unsigned char* A, int A_w, int A_h, const unsigned char* B,
              const Option& option);
 
 bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int patch_size, DistanceType distance_type,
-                  float& distance);
+                  int B_y, int patch_size_x, int patch_size_y,
+                  DistanceType distance_type, float& distance);
 
 bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int patch_size, DistanceType distance_type,
-                  float& distance, float current_min);
+                  int B_y, int patch_size_x, int patch_size_y,
+                  DistanceType distance_type, float& distance,
+                  float current_min);
 
 bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
-         int half_patch_size, float& val);
+         int patch_size_x, int patch_size_y, float& val);
 
 bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
-         int half_patch_size, float& val, float current_min);
+         int patch_size_x, int patch_size_y, float& val, float current_min);
 
 class DistanceCache {
   const Image3b* A_;
@@ -499,10 +507,17 @@ class DistanceCache {
     min_distance_.setTo(-1.0f);
   }
 
-  const Image1f& min_distance() { return min_distance_; }
-  int patch_size() { return patch_size_; }
+  const Image1f& min_distance() const { return min_distance_; }
+  int patch_size() const { return patch_size_; }
+  const Image3b* A() const { return A_; }
+  const Image3b* B() const { return B_; }
+  DistanceType distance_type() const { return distance_type_; }
   bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
              bool& updated) {
+    // 1. check partial dist avairability
+    // 2. if avairalble use it and return
+    // 3. if no caluclate
+
     int B_x = A_x + x_offset;
     int B_y = A_y + y_offset;
 
@@ -511,13 +526,13 @@ class DistanceCache {
     float& current_dist = min_distance_.at<float>(A_y, A_x);
     if (current_dist < 0.0f) {
       // first calculation for A(x, y)
-      CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, distance_type_,
-                   dist);
+      CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, patch_size_,
+                   distance_type_, dist);
       current_dist = dist;
       updated = true;
     } else {
       bool ret = CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_,
-                              distance_type_, dist, current_dist);
+                              patch_size_, distance_type_, dist, current_dist);
 
       if (!ret) {
         // false when early termination happens
@@ -543,39 +558,40 @@ bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
 bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                 std::default_random_engine& engine);
 
-void UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
 /* end of declation of interface */
 
 /* definition of interface */
 inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int patch_size,
+                         int B_x, int B_y, int patch_size_x, int patch_size_y,
                          DistanceType distance_type, float& distance) {
   if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance);
+    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y, distance);
   }
 
   return false;
 }
 
 inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int patch_size,
+                         int B_x, int B_y, int patch_size_x, int patch_size_y,
                          DistanceType distance_type, float& distance,
                          float current_min) {
   if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance, current_min);
+    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y, distance,
+               current_min);
   }
 
   return false;
 }
 
 inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int patch_size, float& val) {
+                int B_y, int patch_size_x, int patch_size_y, float& val) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size + 1; j++) {
-    for (int i = 0; i < patch_size + 1; i++) {
+  for (int j = 0; j < patch_size_y + 1; j++) {
+    for (int i = 0; i < patch_size_x + 1; i++) {
       auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -593,11 +609,12 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
 }
 
 inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int patch_size, float& val, float current_min) {
+                int B_y, int patch_size_x, int patch_size_y, float& val,
+                float current_min) {
   val = 0.0f;
   const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size + 1; j++) {
-    for (int i = 0; i < patch_size + 1; i++) {
+  for (int j = 0; j < patch_size_y + 1; j++) {
+    for (int i = 0; i < patch_size_x + 1; i++) {
       const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
       std::array<float, 3> diff_list;
@@ -617,23 +634,28 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   return true;
 }
 
-inline void UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                                   int x_max, int y_max) {
+  bool ret{false};
   float new_x = offset[0] + x;
   if (new_x < 0) {
     offset[0] = static_cast<float>(-x);
-  }
-  if (new_x > x_max - 1 - patch_size) {
+    ret = true;
+  } else if (new_x > x_max - 1 - patch_size) {
     offset[0] = static_cast<float>(x_max - 1 - patch_size - x);
+    ret = true;
   }
 
   float new_y = offset[1] + y;
   if (new_y < 0) {
     offset[1] = static_cast<float>(-y);
-  }
-  if (new_y > y_max - 1 - patch_size) {
+    ret = true;
+  } else if (new_y > y_max - 1 - patch_size) {
     offset[1] = static_cast<float>(y_max - 1 - patch_size - y);
+    ret = true;
   }
+
+  return ret;
 }
 
 inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
@@ -655,10 +677,39 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   Vec2f offset_l;
   if (x > 0) {
     offset_l = nnf.at<Vec2f>(y, x - 1);
-    UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(), x, y, x_max,
-                          y_max);
-    distance_cache.query(x, y, static_cast<int>(offset_l[0]),
+    bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
+                                        x, y, x_max, y_max);
+
+ distance_cache.query(x, y, static_cast<int>(offset_l[0]),
                          static_cast<int>(offset_l[1]), dist_list[1], updated);
+#if 0
+				    if (gurded) {
+      distance_cache.query(x, y, static_cast<int>(offset_l[0]),
+                           static_cast<int>(offset_l[1]), dist_list[1],
+                           updated);
+    } else {
+      float dist = distance_cache.min_distance().at<float>(y, x - 1);
+
+      // substract left most col
+      float l_dist;
+      CalcDistance(*distance_cache.A(), x - 1, y, *distance_cache.B(),
+                   static_cast<int>(offset_l[0]), static_cast<int>(offset_l[1]),
+                   1, distance_cache.patch_size(),
+                   distance_cache.distance_type(), l_dist);
+
+      // add right col
+      float r_dist;
+      CalcDistance(*distance_cache.A(), x + distance_cache.patch_size(), y,
+                   *distance_cache.B(),
+                   static_cast<int>(offset_l[0]), static_cast<int>(offset_l[1]),
+                   1, distance_cache.patch_size(),
+                   distance_cache.distance_type(), l_dist);
+
+      dist_list[1] = dist - l_dist + r_dist;
+    }
+#endif  // 0
+
+
   } else {
     dist_list[1] = std::numeric_limits<float>::max();
   }
@@ -772,6 +823,10 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   for (int iter = 0; iter < option.max_iter; iter++) {
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
     printf("iter %d radious %f \n", iter, radius);
+
+    // todo: paralellize here.
+    // "in practice long propagations are not needed"
+    // See "3.2 Iteration GPU implementation." of the original paper
     for (int j = 0; j < nnf.rows - option.patch_size; j++) {
       for (int i = 0; i < nnf.cols - option.patch_size; i++) {
         // Propagation
