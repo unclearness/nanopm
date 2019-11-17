@@ -10,7 +10,6 @@
 
 #include <array>
 #include <random>
-#include <unordered_map>
 #include <vector>
 
 #ifdef NANOPM_USE_STB
@@ -452,7 +451,7 @@ struct Option {
   Image2f initial;
   int initial_random_iter = 5;
 
-  size_t random_seed = 0;  // for repeatability
+  unsigned int random_seed = 0;  // for repeatability
 
   DistanceType distance_type = DistanceType::SSD;
 
@@ -551,7 +550,7 @@ inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
     return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance);
   }
 
-  return -9999.9f;
+  return false;
 }
 
 inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
@@ -562,7 +561,7 @@ inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
     return SSD(A, A_x, A_y, B, B_x, B_y, patch_size, distance, current_min);
   }
 
-  return -9999.9f;
+  return false;
 }
 
 inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
@@ -576,7 +575,7 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
       std::array<float, 3> diff_list;
 
       for (int c = 0; c < 3; c++) {
-        diff_list[c] = A_val[c] - B_val[c];
+        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
       }
 
       // average of 3 channels
@@ -598,7 +597,7 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
       std::array<float, 3> diff_list;
 
       for (int c = 0; c < 3; c++) {
-        diff_list[c] = A_val[c] - B_val[c];
+        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
       }
 
       // average of 3 channels
@@ -614,20 +613,20 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
 
 inline void UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                                   int x_max, int y_max) {
-  int new_x = offset[0] + x;
+  float new_x = offset[0] + x;
   if (new_x < 0) {
-    offset[0] = -x;
+    offset[0] = static_cast<float>(-x);
   }
   if (new_x > x_max - 1 - patch_size) {
-    offset[0] = x_max - 1 - patch_size - x;
+    offset[0] = static_cast<float>(x_max - 1 - patch_size - x);
   }
 
-  int new_y = offset[1] + y;
+  float new_y = offset[1] + y;
   if (new_y < 0) {
-    offset[1] = -y;
+    offset[1] = static_cast<float>(-y);
   }
   if (new_y > y_max - 1 - patch_size) {
-    offset[1] = y_max - 1 - patch_size - y;
+    offset[1] = static_cast<float>(y_max - 1 - patch_size - y);
   }
 }
 
@@ -641,8 +640,9 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
 
   float current_dist = distance_cache.min_distance().at<float>(y, x);
   if (current_dist < 0.0f) {
-    distance_cache.query(x, y, current_offset[0], current_offset[1],
-                         current_dist, updated);
+    distance_cache.query(x, y, static_cast<int>(current_offset[0]),
+                         static_cast<int>(current_offset[1]), current_dist,
+                         updated);
   }
   dist_list[0] = current_dist;
 
@@ -651,7 +651,8 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
     offset_l = nnf.at<Vec2f>(y, x - 1);
     UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(), x, y, x_max,
                           y_max);
-    distance_cache.query(x, y, offset_l[0], offset_l[1], dist_list[1], updated);
+    distance_cache.query(x, y, static_cast<int>(offset_l[0]),
+                         static_cast<int>(offset_l[1]), dist_list[1], updated);
   } else {
     dist_list[1] = std::numeric_limits<float>::max();
   }
@@ -661,12 +662,13 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
     offset_u = nnf.at<Vec2f>(y - 1, x);
     UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(), x, y, x_max,
                           y_max);
-    distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
+    distance_cache.query(x, y, static_cast<int>(offset_u[0]),
+                         static_cast<int>(offset_u[1]), dist_list[2], updated);
   } else {
     dist_list[2] = std::numeric_limits<float>::max();
   }
 
-  auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
+  auto min_iter = std::min_element(dist_list.begin(), dist_list.end());
   size_t min_index = std::distance(dist_list.begin(), min_iter);
 
   if (min_index == 1) {
@@ -695,7 +697,8 @@ inline bool RandomSearch(
 
   float dist;
   bool updated{false};
-  distance_cache.query(x, y, update[0], update[1], dist, updated);
+  distance_cache.query(x, y, static_cast<int>(update[0]),
+                       static_cast<int>(update[1]), dist, updated);
 
   if (updated) {
     current = update;
@@ -713,8 +716,8 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
     for (int j = 0; j < nnf.rows - option.patch_size; j++) {
       for (int i = 0; i < nnf.cols - option.patch_size; i++) {
         Vec2f& val = nnf.at<Vec2f>(j, i);
-        val[0] = dist_w(engine) - i;
-        val[1] = dist_h(engine) - j;
+        val[0] = static_cast<float>(dist_w(engine) - i);
+        val[1] = static_cast<float>(dist_h(engine) - j);
       }
     }
   } else {
@@ -765,13 +768,13 @@ inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 
-  float inv_2pi = 1.0f / (2 * M_PI);
+  float inv_2pi = static_cast<float>(1.0f / (2 * M_PI));
   float inv_mag_factor = 1.0f / (max_mag - min_mag);
   for (int y = 0; y < vis_nnf_hsv.rows; y++) {
     for (int x = 0; x < vis_nnf_hsv.cols; x++) {
       const Vec2f& nn = nnf.at<Vec2f>(y, x);
 
-      float angle = std::atan2(nn[1], nn[0]) + M_PI;
+      float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + M_PI);
       float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
       // printf("angle %f\n", angle * inv_2pi * 360);
       // printf("magnitude %f\n", magnitude);
@@ -838,12 +841,16 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
   }
   std::sort(valid_data.begin(), valid_data.end());
   float r = 0.05f;
-  // get 5% an 95% percentile...
-  const float min_d = valid_data[valid_data.size() * r];
-  const float max_d = valid_data[valid_data.size() * (1.0f - r)];
+  float min_d = -1.0f;
+  float max_d = 0.0f;
+  if (!valid_data.empty()) {
+    // get 5% an 95% percentile...
+    min_d = valid_data[static_cast<size_t>(valid_data.size() * r)];
+    max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
+  }
 
-  printf("max distance %f\n", max_d);
-  printf("min distance %f\n", min_d);
+  // printf("max distance %f\n", max_d);
+  // printf("min distance %f\n", min_d);
 
   vis_distance = Image3b::zeros(distance.rows, distance.cols);
 
