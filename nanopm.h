@@ -522,8 +522,6 @@ class DistanceCache {
   int half_patch_size() { return half_patch_size_; }
   bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
              bool& updated) {
-    // int A_index = A_y * A_->cols + A_x;
-    // int B_index = B_y * B_->cols + B_x;
     int B_x = A_x + x_offset;
     int B_y = A_y + y_offset;
     // todo: implement two methods described in 3.2 Iteration  Efficiency
@@ -647,23 +645,6 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   return true;
 }
 
-#if 0
-				inline float SSD(const Image1b& A, int A_x, int A_y, const Image1b& B, int B_x,
-                 int B_y, int half_patch_size) {
-  int& h_ps = half_patch_size;
-  float ssd = 0.0f;
-  for (int j = -h_ps; j < h_ps + 1; j++) {
-    for (int i = -h_ps; i < h_ps + 1; i++) {
-      unsigned char A_val = A.at<unsigned char>(A_y + j, A_x + i);
-      unsigned char B_val = B.at<unsigned char>(B_y + j, B_x + i);
-      float diff = A_val - B_val;
-      ssd += (diff * diff);
-    }
-  }
-  return ssd;
-}
-#endif  // 0
-
 inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
                         DistanceCache& distance_cache) {
   bool updated{false};
@@ -680,21 +661,38 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   }
   dist_list[0] = current_dist;
 
-  Vec2f& offset_r = nnf.at<Vec2f>(y, x - 1);
-  if (offset_r[0] + x - h_ps > 0 && offset_r[0] + x + h_ps < x_max &&
-      offset_r[1] + y - h_ps > 0 && offset_r[1] + y + h_ps < y_max) {
-    distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
-  } else {
-    dist_list[1] = std::numeric_limits<float>::max();
+  Vec2f offset_r = nnf.at<Vec2f>(y, x - 1);
+  if (offset_r[0] + x < h_ps) {
+    offset_r[0] = h_ps - x;
+  }
+  if (offset_r[0] + x > x_max - h_ps - 1) {
+    offset_r[0] = x_max - h_ps - 1 - x;
   }
 
-  Vec2f& offset_u = nnf.at<Vec2f>(y - 1, x);
-  if (offset_u[0] + x - h_ps > 0 && offset_u[0] + x + h_ps < x_max &&
-      offset_u[1] + y - h_ps > 0 && offset_u[1] + y + h_ps < y_max) {
-    distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
-  } else {
-    dist_list[2] = std::numeric_limits<float>::max();
+  if (offset_r[1] + y < h_ps) {
+    offset_r[1] = h_ps - y;
   }
+  if (offset_r[1] + y > y_max - h_ps - 1) {
+    offset_r[1] = y_max - h_ps - 1 - y;
+  }
+  distance_cache.query(x, y, offset_r[0], offset_r[1], dist_list[1], updated);
+
+  Vec2f offset_u = nnf.at<Vec2f>(y - 1, x);
+
+  if (offset_u[0] + x < h_ps) {
+    offset_u[0] = h_ps - x;
+  }
+  if (offset_u[0] + x > x_max - h_ps - 1) {
+    offset_u[0] = x_max - h_ps - 1 - x;
+  }
+
+  if (offset_u[1] + y < h_ps) {
+    offset_u[1] = h_ps - y;
+  }
+  if (offset_u[1] + y > y_max - h_ps - 1) {
+    offset_u[1] = y_max - h_ps - 1 - y;
+  }
+  distance_cache.query(x, y, offset_u[0], offset_u[1], dist_list[2], updated);
 
   auto& min_iter = std::min_element(dist_list.begin(), dist_list.end());
   size_t min_index = std::distance(dist_list.begin(), min_iter);
@@ -785,13 +783,14 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
   // initialize
   Initialize(nnf, B.cols, B.rows, option, engine);
+  // return true;
   DistanceCache distance_cache(A, B, option.distance_type,
                                option.patch_size / 2);
 
   // iteration
   for (int iter = 0; iter < option.max_iter; iter++) {
-    printf("iter %d\n", iter);
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
+    printf("iter %d radious %f \n", iter, radius);
     const int h_ps = option.patch_size / 2;
     for (int j = h_ps; j < nnf.rows - h_ps; j++) {
       for (int i = h_ps; i < nnf.cols - h_ps; i++) {
@@ -814,11 +813,6 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
                         float max_mag = 100.0f, float min_mag = 0.0f,
                         unsigned char v = 200) {
-  // const float* data = reinterpret_cast<float*>(distance.data);
-  // const int size = distance.cols * distance.rows;
-  // const float max_d = *std::max_element(data, data + size);
-  // const float min_d = *std::min_element(data, data + size);
-
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 
@@ -830,8 +824,8 @@ inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
 
       float angle = std::atan2(nn[1], nn[0]) + M_PI;
       float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
-      //printf("angle %f\n", angle * inv_2pi * 360);
-      //printf("magnitude %f\n", magnitude);
+      // printf("angle %f\n", angle * inv_2pi * 360);
+      // printf("magnitude %f\n", magnitude);
       float norm_magnitude = std::max(
           0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
 
@@ -885,10 +879,22 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
 }
 #else
 inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
-  const float* data = reinterpret_cast<float*>(distance.data);
+  const float* raw_data = reinterpret_cast<float*>(distance.data);
   const int size = distance.cols * distance.rows;
-  const float max_d = *std::max_element(data, data + size);
-  const float min_d = *std::min_element(data, data + size);
+  std::vector<float> valid_data;
+  for (int i = 0; i < size; i++) {
+    if (raw_data[i] > 0.0f) {
+      valid_data.push_back(raw_data[i]);
+    }
+  }
+  std::sort(valid_data.begin(), valid_data.end());
+  float r = 0.05f;
+  // get 5% an 95% percentile...
+  const float min_d = valid_data[valid_data.size() * r];
+  const float max_d = valid_data[valid_data.size() * (1.0f - r)];
+
+  printf("max distance %f\n", max_d);
+  printf("min distance %f\n", min_d);
 
   vis_distance = Image3b::zeros(distance.rows, distance.cols);
 
@@ -896,6 +902,8 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
   for (int y = 0; y < vis_distance.rows; y++) {
     for (int x = 0; x < vis_distance.cols; x++) {
       const float& d = distance.at<float>(y, x);
+
+      // printf("distance %f\n", d);
 
       float norm_color = (d - min_d) * inv_denom;
       norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);

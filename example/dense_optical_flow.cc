@@ -11,14 +11,17 @@ int main(int argc, char* argv[]) {
 
   std::string data_dir = "../data/";
 
-  nanopm::Image3b A = nanopm::imread<nanopm::Image3b>(data_dir + "1.jpg");
-  nanopm::Image3b B = nanopm::imread<nanopm::Image3b>(data_dir + "2.jpg");
+  nanopm::Image3b A = nanopm::imread<nanopm::Image3b>(
+      data_dir + "1.jpg", nanopm::ImreadModes::IMREAD_COLOR);
+  nanopm::Image3b B = nanopm::imread<nanopm::Image3b>(
+      data_dir + "2.jpg", nanopm::ImreadModes::IMREAD_COLOR);
 
   nanopm::Image2f nnf;
   nanopm::Image1f distance;
   nanopm::Option option;
-  option.max_iter = 1;
-  option.patch_size = 3;
+  option.max_iter = 5;
+  option.patch_size = 15;
+  option.w = std::pow(2.0f, option.max_iter-1);
   nanopm::Compute(A, B, nnf, distance, option);
 
   nanopm::Image3b vis_nnf, vis_distance;
