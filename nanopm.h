@@ -463,6 +463,7 @@ struct Option {
   DistanceType distance_type = DistanceType::SSD;
 
   bool verbose = true;
+  std::string debug_dir = "";
 };
 
 bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
@@ -561,6 +562,8 @@ bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
+bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag = 100.0f,
+                 float min_mag = 0.0f, unsigned char v = 255);
 /* end of declation of interface */
 
 /* definition of interface */
@@ -852,12 +855,22 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   // iteration
   for (int iter = 0; iter < option.max_iter; iter++) {
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
-    printf("iter %d radious %f \n", iter, radius);
-
+    if (option.verbose) {
+      printf("iter %d radious %f \n", iter, radius);
+    }
     // todo: paralellize here.
     // "in practice long propagations are not needed"
     // See "3.2 Iteration GPU implementation." of the original paper
     for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+      if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
+        std::string debug_path = option.debug_dir + "/nanopm_" +
+                                 std::to_string(iter) + "_" +
+                                 std::to_string(j / (nnf.rows / 4)) + ".jpg";
+        Image3b vis_nnf;
+        nanopm::ColorizeNnf(nnf, vis_nnf);
+        nanopm::imwrite(debug_path, vis_nnf);
+      }
+
       for (int i = 0; i < nnf.cols - option.patch_size; i++) {
         // Propagation
         Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
@@ -867,6 +880,14 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
                      distribution_rs);
       }
     }
+
+    if (!option.debug_dir.empty()) {
+      std::string debug_path =
+          option.debug_dir + "/nanopm_" + std::to_string(iter) + "_4.jpg";
+      Image3b vis_nnf;
+      nanopm::ColorizeNnf(nnf, vis_nnf);
+      nanopm::imwrite(debug_path, vis_nnf);
+    }
   }
 
   distance = Image1f::zeros(A.rows, A.cols);
@@ -875,9 +896,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   return true;
 }
 
-inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf,
-                        float max_mag = 100.0f, float min_mag = 0.0f,
-                        unsigned char v = 255) {
+inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
+                        float min_mag, unsigned char v) {
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 

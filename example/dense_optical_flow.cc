@@ -58,6 +58,7 @@ int main(int argc, char* argv[]) {
   nanopm::Image2f nnf;
   nanopm::Image1f distance;
   nanopm::Option option;
+  option.debug_dir = "./";
   Timer<> timer;
   timer.Start();
   nanopm::Compute(A, B, nnf, distance, option);
