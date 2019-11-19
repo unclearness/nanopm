@@ -593,7 +593,8 @@ bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
-bool DebugDump(const std::string& debug_path, const Image2f& nnf);
+bool DebugDump(const std::string& debug_dir, const std::string& postfix,
+               const Image2f& nnf, const Image1f& distance);
 
 /* end of declation of private interface */
 }  // namespace impl
@@ -646,10 +647,10 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
     // See "3.2 Iteration GPU implementation." of the original paper
     for (int j = 0; j < nnf.rows - option.patch_size; j++) {
       if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
-        std::string debug_path = option.debug_dir + "/nanopm_" +
-                                 std::to_string(iter) + "_" +
-                                 std::to_string(j / (nnf.rows / 4)) + ".jpg";
-        impl::DebugDump(debug_path, nnf);
+        impl::DebugDump(
+            option.debug_dir,
+            std::to_string(iter) + "_" + std::to_string(j / (nnf.rows / 4)),
+            nnf, distance_cache.min_distance());
       }
 
       for (int i = 0; i < nnf.cols - option.patch_size; i++) {
@@ -663,9 +664,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
     }
 
     if (!option.debug_dir.empty()) {
-      std::string debug_path =
-          option.debug_dir + "/nanopm_" + std::to_string(iter) + "_4.jpg";
-      impl::DebugDump(debug_path, nnf);
+      impl::DebugDump(option.debug_dir, std::to_string(iter) + "_4", nnf,
+                      distance_cache.min_distance());
     }
   }
 
@@ -805,7 +805,7 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
     for (int x = 0; x < vis_distance.cols; x++) {
       const float& d = distance.at<float>(y, x);
 
-      float norm_color = (d - min_d) * inv_denom;
+      float norm_color = d < 0.0f ? 1.0f : (d - min_d) * inv_denom;
       norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
 
       Vec3b& vis = vis_distance.at<Vec3b>(y, x);
@@ -1067,6 +1067,8 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
         val[1] = static_cast<float>(dist_h(engine) - j);
       }
     }
+  } else if (option.init_type == InitType::INITIAL) {
+    option.initial.copyTo(nnf);
   } else {
     return false;
   }
@@ -1074,10 +1076,14 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
   return true;
 }
 
-inline bool DebugDump(const std::string& debug_path, const Image2f& nnf) {
-  Image3b vis_nnf;
+inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
+                      const Image2f& nnf, const Image1f& distance) {
+  Image3b vis_nnf, vis_distance;
   nanopm::ColorizeNnf(nnf, vis_nnf);
-  nanopm::imwrite(debug_path, vis_nnf);
+  nanopm::imwrite(debug_dir + "nnf_" + postfix + ".jpg", vis_nnf);
+  nanopm::ColorizeDistance(distance, vis_distance);
+  nanopm::imwrite(debug_dir + "distance_" + postfix + ".jpg", vis_distance);
+
   return true;
 }
 
