@@ -593,6 +593,8 @@ bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
+bool DebugDump(const std::string& debug_path, const Image2f& nnf);
+
 /* end of declation of private interface */
 }  // namespace impl
 
@@ -647,9 +649,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
         std::string debug_path = option.debug_dir + "/nanopm_" +
                                  std::to_string(iter) + "_" +
                                  std::to_string(j / (nnf.rows / 4)) + ".jpg";
-        Image3b vis_nnf;
-        nanopm::ColorizeNnf(nnf, vis_nnf);
-        nanopm::imwrite(debug_path, vis_nnf);
+        impl::DebugDump(debug_path, nnf);
       }
 
       for (int i = 0; i < nnf.cols - option.patch_size; i++) {
@@ -665,9 +665,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
     if (!option.debug_dir.empty()) {
       std::string debug_path =
           option.debug_dir + "/nanopm_" + std::to_string(iter) + "_4.jpg";
-      Image3b vis_nnf;
-      nanopm::ColorizeNnf(nnf, vis_nnf);
-      nanopm::imwrite(debug_path, vis_nnf);
+      impl::DebugDump(debug_path, nnf);
     }
   }
 
@@ -1073,6 +1071,13 @@ inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
     return false;
   }
 
+  return true;
+}
+
+inline bool DebugDump(const std::string& debug_path, const Image2f& nnf) {
+  Image3b vis_nnf;
+  nanopm::ColorizeNnf(nnf, vis_nnf);
+  nanopm::imwrite(debug_path, vis_nnf);
   return true;
 }
 
