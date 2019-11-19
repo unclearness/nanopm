@@ -432,7 +432,7 @@ bool ConvertTo(const Image<T>& src, Image<TT>* dst, float scale = 1.0f) {
 
 /* end of Image class definition */
 
-/* declation of interface */
+/* declation of public interface */
 
 enum class InitType {
   RANDOM,         // independent pixel-wise random initialization by uniform
@@ -475,52 +475,68 @@ bool Compute(const unsigned char* A, int A_w, int A_h, const unsigned char* B,
              int B_w, int B_h, float* nnf, float* distance,
              const Option& option);
 
-bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int patch_size_x, int patch_size_y,
-                  DistanceType distance_type, float& distance);
+bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag = 100.0f,
+                 float min_mag = 0.0f, unsigned char v = 255);
 
-bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                  int B_y, int patch_size_x, int patch_size_y,
-                  DistanceType distance_type, float& distance,
-                  float current_min);
+#ifdef NANOPM_USE_TINYCOLORMAP
+bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
+                      tinycolormap::ColormapType type) {
+#endif
+  bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance);
+  /* end of declation of interface */
 
-bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
-         int patch_size_x, int patch_size_y, float& val);
+  namespace impl {
+  /* declation of private interface */
+  bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                    int B_x, int B_y, int patch_size_x, int patch_size_y,
+                    DistanceType distance_type, float& distance);
 
-bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x, int B_y,
-         int patch_size_x, int patch_size_y, float& val, float current_min);
+  bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                    int B_x, int B_y, int patch_size_x, int patch_size_y,
+                    DistanceType distance_type, float& distance,
+                    float current_min);
 
-class DistanceCache {
-  const Image3b* A_;
-  const Image3b* B_;
-  int patch_size_;
-  Image1f min_distance_;
-  DistanceType distance_type_;
+  bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+           int B_y, int patch_size_x, int patch_size_y, float& val);
 
- public:
-  DistanceCache() = delete;
-  DistanceCache(const DistanceCache& src) = delete;
-  ~DistanceCache() = default;
-  DistanceCache(const Image3b& A, const Image3b& B,
-                const DistanceType& distance_type, int patch_size)
-      : A_(&A), B_(&B), distance_type_(distance_type), patch_size_(patch_size) {
-    min_distance_ = Image1f::zeros(A_->rows, A_->cols);
-    min_distance_.setTo(-1.0f);
-  }
+  bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+           int B_y, int patch_size_x, int patch_size_y, float& val,
+           float current_min);
 
-  Image1f& min_distance() { return min_distance_; }
-  int patch_size() const { return patch_size_; }
-  const Image3b* A() const { return A_; }
-  const Image3b* B() const { return B_; }
-  DistanceType distance_type() const { return distance_type_; }
-  bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
-             bool& updated) {
-    int B_x = A_x + x_offset;
-    int B_y = A_y + y_offset;
+  class DistanceCache {
+    const Image3b* A_;
+    const Image3b* B_;
+    int patch_size_;
+    Image1f min_distance_;
+    DistanceType distance_type_;
 
-    // new patch pair
-    updated = false;
-    float& current_dist = min_distance_.at<float>(A_y, A_x);
+   public:
+    DistanceCache() = delete;
+    DistanceCache(const DistanceCache& src) = delete;
+    ~DistanceCache() = default;
+    DistanceCache(const Image3b& A, const Image3b& B,
+                  const DistanceType& distance_type, int patch_size)
+        : A_(&A),
+          B_(&B),
+          distance_type_(distance_type),
+          patch_size_(patch_size) {
+      min_distance_ = Image1f::zeros(A_->rows, A_->cols);
+      min_distance_.setTo(-1.0f);
+    }
+
+    Image1f& min_distance() { return min_distance_; }
+    int patch_size() const { return patch_size_; }
+    const Image3b* A() const { return A_; }
+    const Image3b* B() const { return B_; }
+    DistanceType distance_type() const { return distance_type_; }
+    bool query(int A_x, int A_y, int x_offset, int y_offset, float& dist,
+               bool& updated) {
+      int B_x = A_x + x_offset;
+      int B_y = A_y + y_offset;
+
+      // new patch pair
+      updated = false;
+      float& current_dist = min_distance_.at<float>(A_y, A_x);
 
 #if 0
     CalcDistance(*A_, A_x, A_y, *B_, B_x, B_y, patch_size_, patch_size_,
@@ -557,462 +573,470 @@ class DistanceCache {
     }
 #endif  // 0
 
-    return true;
+      return true;
+    }
+  };
+
+  bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
+                   DistanceCache& distance_cache);
+
+  bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
+                    DistanceCache& distance_cache, float radius,
+                    std::default_random_engine& engine,
+                    std::uniform_real_distribution<float>& distribution_rs);
+
+  bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
+                  std::default_random_engine& engine);
+
+  bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                             int x_max, int y_max);
+
+  /* end of declation of private interface */
+  }  // namespace impl
+
+  /* definition of interface */
+  inline bool Compute(const unsigned char* A, int A_w, int A_h,
+                      const unsigned char* B, int B_w, int B_h, float* nnf,
+                      float* distance, const Option& option) {
+    Image2f nnf_;
+    Image1f distance_;
+
+    Image3b A_, B_;
+    A_ = Image3b::zeros(A_h, A_w);
+    std::memcpy(A_.data, A, sizeof(unsigned char) * 3 * A_w * A_h);
+
+    B_ = Image3b::zeros(B_h, B_w);
+    std::memcpy(B_.data, B, sizeof(unsigned char) * 3 * B_w * B_h);
+
+    bool ret = Compute(A_, B_, nnf_, distance_, option);
+
+    std::memcpy(nnf, reinterpret_cast<float*>(nnf_.data),
+                sizeof(float) * nnf_.cols * nnf_.rows);
+    std::memcpy(distance, reinterpret_cast<float*>(distance_.data),
+                sizeof(float) * distance_.cols * distance_.rows);
+    return ret;
   }
-};
 
-bool Propagation(Image2f& nnf, int x, int y, DistanceCache& distance_cache);
+  inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
+                      Image1f& distance, const Option& option) {
+    std::default_random_engine engine(option.random_seed);
+    std::uniform_real_distribution<float> distribution_rs(-1.0f, 1.0f);
 
-bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
-                  DistanceCache& distance_cache, float radius,
-                  std::default_random_engine& engine,
-                  std::uniform_real_distribution<float>& distribution_rs);
+    // memory allocation of nnf
+    nnf = Image2f::zeros(A.rows, A.cols);
 
-bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
-                std::default_random_engine& engine);
+    // initialize
+    impl::Initialize(nnf, B.cols, B.rows, option, engine);
+    // return true;
+    impl::DistanceCache distance_cache(A, B, option.distance_type,
+                                       option.patch_size);
 
-bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                           int x_max, int y_max);
+    // iteration
+    for (int iter = 0; iter < option.max_iter; iter++) {
+      float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
+      if (option.verbose) {
+        printf("iter %d radious %f \n", iter, radius);
+      }
+      // todo: paralellize here.
+      // "in practice long propagations are not needed"
+      // See "3.2 Iteration GPU implementation." of the original paper
+      for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+        if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
+          std::string debug_path = option.debug_dir + "/nanopm_" +
+                                   std::to_string(iter) + "_" +
+                                   std::to_string(j / (nnf.rows / 4)) + ".jpg";
+          Image3b vis_nnf;
+          nanopm::ColorizeNnf(nnf, vis_nnf);
+          nanopm::imwrite(debug_path, vis_nnf);
+        }
 
-bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag = 100.0f,
-                 float min_mag = 0.0f, unsigned char v = 255);
-/* end of declation of interface */
+        for (int i = 0; i < nnf.cols - option.patch_size; i++) {
+          // Propagation
+          impl::Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
 
-/* definition of interface */
-inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int patch_size_x, int patch_size_y,
-                         DistanceType distance_type, float& distance) {
-  if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y, distance);
-  }
-
-  return false;
-}
-
-inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
-                         int B_x, int B_y, int patch_size_x, int patch_size_y,
-                         DistanceType distance_type, float& distance,
-                         float current_min) {
-  if (distance_type == DistanceType::SSD) {
-    return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y, distance,
-               current_min);
-  }
-
-  return false;
-}
-
-inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int patch_size_x, int patch_size_y, float& val) {
-  val = 0.0f;
-  const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size_y; j++) {
-    for (int i = 0; i < patch_size_x; i++) {
-      auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
-      auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
-      std::array<float, 3> diff_list;
-
-      for (int c = 0; c < 3; c++) {
-        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
+          // Random search
+          impl::RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius,
+                             engine, distribution_rs);
+        }
       }
 
-      // average of 3 channels
-      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
-      val += (diff * diff);
-    }
-  }
-  return true;
-}
-
-inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
-                int B_y, int patch_size_x, int patch_size_y, float& val,
-                float current_min) {
-  val = 0.0f;
-  const float frac = 1.0f / 3.0f;
-  for (int j = 0; j < patch_size_y; j++) {
-    for (int i = 0; i < patch_size_x; i++) {
-      const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
-      const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
-      std::array<float, 3> diff_list;
-
-      for (int c = 0; c < 3; c++) {
-        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
-      }
-
-      // average of 3 channels
-      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
-      val += (diff * diff);
-      if (val > current_min) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                                  int x_max, int y_max) {
-  bool ret{false};
-  float new_x = offset[0] + x;
-  if (new_x < 0) {
-    offset[0] = static_cast<float>(-x);
-    ret = true;
-  } else if (new_x > x_max - 1 - patch_size) {
-    offset[0] = static_cast<float>(x_max - 1 - patch_size - x);
-    ret = true;
-  }
-
-  float new_y = offset[1] + y;
-  if (new_y < 0) {
-    offset[1] = static_cast<float>(-y);
-    ret = true;
-  } else if (new_y > y_max - 1 - patch_size) {
-    offset[1] = static_cast<float>(y_max - 1 - patch_size - y);
-    ret = true;
-  }
-
-  return ret;
-}
-
-inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
-                        DistanceCache& distance_cache) {
-  bool updated{false};
-
-  Vec2f& current_offset = nnf.at<Vec2f>(y, x);
-
-  std::array<float, 3> dist_list;
-
-  float& current_dist = distance_cache.min_distance().at<float>(y, x);
-  if (current_dist < 0.0f) {
-    distance_cache.query(x, y, static_cast<int>(current_offset[0]),
-                         static_cast<int>(current_offset[1]), current_dist,
-                         updated);
-  }
-  dist_list[0] = current_dist;
-
-  Vec2f offset_l;
-  if (x > 0) {
-    offset_l = nnf.at<Vec2f>(y, x - 1);
-    bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
-                                        x, y, x_max, y_max);
-
-    float& current_l_dist = distance_cache.min_distance().at<float>(y, x - 1);
-
-    if (gurded || current_l_dist < 0.0f) {
-      distance_cache.query(x, y, static_cast<int>(offset_l[0]),
-                           static_cast<int>(offset_l[1]), dist_list[1],
-                           updated);
-    } else {
-      // integral image like technique described in "3.2 Iteration Efficiency."
-
-      // substract left most col
-      float l_dist;
-      CalcDistance(*distance_cache.A(), x - 1, y, *distance_cache.B(),
-                   static_cast<int>(offset_l[0]) + x - 1,
-                   static_cast<int>(offset_l[1]) + y, 1,
-                   distance_cache.patch_size(), distance_cache.distance_type(),
-                   l_dist);
-
-      // add right col
-      float r_dist;
-      CalcDistance(
-          *distance_cache.A(), x + distance_cache.patch_size() - 1, y,
-          *distance_cache.B(),
-          static_cast<int>(offset_l[0]) + x + distance_cache.patch_size() - 1,
-          static_cast<int>(offset_l[1]) + y, 1, distance_cache.patch_size(),
-          distance_cache.distance_type(), r_dist);
-
-      dist_list[1] = current_l_dist - l_dist + r_dist;
-    }
-
-  } else {
-    dist_list[1] = std::numeric_limits<float>::max();
-  }
-
-  Vec2f offset_u;
-  if (y > 0) {
-    offset_u = nnf.at<Vec2f>(y - 1, x);
-    bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
-                                        x, y, x_max, y_max);
-
-    float& current_u_dist = distance_cache.min_distance().at<float>(y - 1, x);
-
-    if (gurded || current_u_dist < 0.0f) {
-      distance_cache.query(x, y, static_cast<int>(offset_u[0]),
-                           static_cast<int>(offset_u[1]), dist_list[2],
-                           updated);
-
-    } else {
-      // integral image like technique described in "3.2 Iteration Efficiency."
-
-      // substract upper most col
-      float u_dist;
-      CalcDistance(*distance_cache.A(), x, y - 1, *distance_cache.B(),
-                   static_cast<int>(offset_u[0]) + x,
-                   static_cast<int>(offset_u[1]) + y - 1,
-                   distance_cache.patch_size(), 1,
-                   distance_cache.distance_type(), u_dist);
-
-      // add bottom col
-      float b_dist;
-      CalcDistance(
-          *distance_cache.A(), x, y + distance_cache.patch_size() - 1,
-          *distance_cache.B(), static_cast<int>(offset_u[0]) + x,
-          static_cast<int>(offset_u[1]) + y + distance_cache.patch_size() - 1,
-          distance_cache.patch_size(), 1, distance_cache.distance_type(),
-          b_dist);
-
-      dist_list[2] = current_u_dist - u_dist + b_dist;
-    }
-  } else {
-    dist_list[2] = std::numeric_limits<float>::max();
-  }
-
-  auto min_iter = std::min_element(dist_list.begin(), dist_list.end());
-  size_t min_index = std::distance(dist_list.begin(), min_iter);
-
-  if (min_index == 1) {
-    current_offset = offset_l;
-    current_dist = dist_list[1];
-
-  } else if (min_index == 2) {
-    current_offset = offset_u;
-    current_dist = dist_list[2];
-  }
-
-  return true;
-}
-
-inline bool RandomSearch(
-    Image2f& nnf, int x, int y, int x_max, int y_max,
-    DistanceCache& distance_cache, float radius,
-    std::default_random_engine& engine,
-    std::uniform_real_distribution<float>& distribution_rs) {
-  Vec2f& current = nnf.at<Vec2f>(y, x);
-  int offset_x = static_cast<int>(distribution_rs(engine) * radius);
-  int offset_y = static_cast<int>(distribution_rs(engine) * radius);
-  Vec2f update = current;
-  update[0] += offset_x;
-  update[1] += offset_y;
-
-  UpdateOffsetWithGuard(update, distance_cache.patch_size(), x, y, x_max,
-                        y_max);
-
-  float dist;
-  bool updated{false};
-  distance_cache.query(x, y, static_cast<int>(update[0]),
-                       static_cast<int>(update[1]), dist, updated);
-
-  if (updated) {
-    current = update;
-    return true;
-  }
-
-  return false;
-}
-
-inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
-                       std::default_random_engine& engine) {
-  if (option.init_type == InitType::RANDOM) {
-    std::uniform_int_distribution<> dist_w(0, B_w - 1 - option.patch_size);
-    std::uniform_int_distribution<> dist_h(0, B_h - 1 - option.patch_size);
-    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
-      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
-        Vec2f& val = nnf.at<Vec2f>(j, i);
-        val[0] = static_cast<float>(dist_w(engine) - i);
-        val[1] = static_cast<float>(dist_h(engine) - j);
-      }
-    }
-  } else {
-    return false;
-  }
-
-  return true;
-}
-
-inline bool Compute(const unsigned char* A, int A_w, int A_h,
-                    const unsigned char* B, int B_w, int B_h, float* nnf,
-                    float* distance, const Option& option) {
-  Image2f nnf_;
-  Image1f distance_;
-
-  Image3b A_, B_;
-  A_ = Image3b::zeros(A_h, A_w);
-  std::memcpy(A_.data, A, sizeof(unsigned char) * 3 * A_w * A_h);
-
-  B_ = Image3b::zeros(B_h, B_w);
-  std::memcpy(B_.data, B, sizeof(unsigned char) * 3 * B_w * B_h);
-
-  bool ret = Compute(A_, B_, nnf_, distance_, option);
-
-  std::memcpy(nnf, reinterpret_cast<float*>(nnf_.data),
-              sizeof(float) * nnf_.cols * nnf_.rows);
-  std::memcpy(distance, reinterpret_cast<float*>(distance_.data),
-              sizeof(float) * distance_.cols * distance_.rows);
-  return ret;
-}
-
-inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
-                    Image1f& distance, const Option& option) {
-  std::default_random_engine engine(option.random_seed);
-  std::uniform_real_distribution<float> distribution_rs(-1.0f, 1.0f);
-
-  // memory allocation of nnf
-  nnf = Image2f::zeros(A.rows, A.cols);
-
-  // initialize
-  Initialize(nnf, B.cols, B.rows, option, engine);
-  // return true;
-  DistanceCache distance_cache(A, B, option.distance_type, option.patch_size);
-
-  // iteration
-  for (int iter = 0; iter < option.max_iter; iter++) {
-    float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
-    if (option.verbose) {
-      printf("iter %d radious %f \n", iter, radius);
-    }
-    // todo: paralellize here.
-    // "in practice long propagations are not needed"
-    // See "3.2 Iteration GPU implementation." of the original paper
-    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
-      if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
-        std::string debug_path = option.debug_dir + "/nanopm_" +
-                                 std::to_string(iter) + "_" +
-                                 std::to_string(j / (nnf.rows / 4)) + ".jpg";
+      if (!option.debug_dir.empty()) {
+        std::string debug_path =
+            option.debug_dir + "/nanopm_" + std::to_string(iter) + "_4.jpg";
         Image3b vis_nnf;
         nanopm::ColorizeNnf(nnf, vis_nnf);
         nanopm::imwrite(debug_path, vis_nnf);
       }
+    }
 
-      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
-        // Propagation
-        Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
+    distance = Image1f::zeros(A.rows, A.cols);
+    distance_cache.min_distance().copyTo(distance);
 
-        // Random search
-        RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius, engine,
-                     distribution_rs);
+    return true;
+  }
+
+  inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
+                          float min_mag, unsigned char v) {
+    Image3b vis_nnf_hsv;
+    vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
+
+    float inv_2pi = static_cast<float>(1.0f / (2 * M_PI));
+    float inv_mag_factor = 1.0f / (max_mag - min_mag);
+    for (int y = 0; y < vis_nnf_hsv.rows; y++) {
+      for (int x = 0; x < vis_nnf_hsv.cols; x++) {
+        const Vec2f& nn = nnf.at<Vec2f>(y, x);
+
+        float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + M_PI);
+        float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
+        // printf("angle %f\n", angle * inv_2pi * 360);
+        // printf("magnitude %f\n", magnitude);
+        float norm_magnitude = std::max(
+            0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
+
+        Vec3b& hsv = vis_nnf_hsv.at<Vec3b>(y, x);
+        hsv[0] = static_cast<unsigned char>(angle * inv_2pi * 179);
+        hsv[1] = static_cast<unsigned char>(norm_magnitude * 255);
+        hsv[2] = v;
       }
     }
 
-    if (!option.debug_dir.empty()) {
-      std::string debug_path =
-          option.debug_dir + "/nanopm_" + std::to_string(iter) + "_4.jpg";
-      Image3b vis_nnf;
-      nanopm::ColorizeNnf(nnf, vis_nnf);
-      nanopm::imwrite(debug_path, vis_nnf);
-    }
+    cv::cvtColor(vis_nnf_hsv, vis_nnf, cv::COLOR_HSV2BGR);
+
+    return true;
   }
-
-  distance = Image1f::zeros(A.rows, A.cols);
-  distance_cache.min_distance().copyTo(distance);
-
-  return true;
-}
-
-inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
-                        float min_mag, unsigned char v) {
-  Image3b vis_nnf_hsv;
-  vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
-
-  float inv_2pi = static_cast<float>(1.0f / (2 * M_PI));
-  float inv_mag_factor = 1.0f / (max_mag - min_mag);
-  for (int y = 0; y < vis_nnf_hsv.rows; y++) {
-    for (int x = 0; x < vis_nnf_hsv.cols; x++) {
-      const Vec2f& nn = nnf.at<Vec2f>(y, x);
-
-      float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + M_PI);
-      float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
-      // printf("angle %f\n", angle * inv_2pi * 360);
-      // printf("magnitude %f\n", magnitude);
-      float norm_magnitude = std::max(
-          0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
-
-      Vec3b& hsv = vis_nnf_hsv.at<Vec3b>(y, x);
-      hsv[0] = static_cast<unsigned char>(angle * inv_2pi * 179);
-      hsv[1] = static_cast<unsigned char>(norm_magnitude * 255);
-      hsv[2] = v;
-    }
-  }
-
-  cv::cvtColor(vis_nnf_hsv, vis_nnf, cv::COLOR_HSV2BGR);
-
-  return true;
-}
 
 #ifdef NANOPM_USE_TINYCOLORMAP
-inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
-                             tinycolormap::ColormapType type) {
-  const float* data = reinterpret_cast<float*>(distance.data);
-  const int size = distance.cols * distance.rows;
-  const float max_d = *std::max_element(data, data + size);
-  const float min_d = *std::min_element(data, data + size);
+  inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
+                               tinycolormap::ColormapType type) {
+    const float* data = reinterpret_cast<float*>(distance.data);
+    const int size = distance.cols * distance.rows;
+    const float max_d = *std::max_element(data, data + size);
+    const float min_d = *std::min_element(data, data + size);
 
-  vis_distance = Image3b::zeros(distance.rows, distance.cols);
+    vis_distance = Image3b::zeros(distance.rows, distance.cols);
 
-  float inv_denom = 1.0f / (max_d - min_d);
-  for (int y = 0; y < vis_distance.rows; y++) {
-    for (int x = 0; x < vis_distance.cols; x++) {
-      const float& d = distance.at<float>(y, x);
+    float inv_denom = 1.0f / (max_d - min_d);
+    for (int y = 0; y < vis_distance.rows; y++) {
+      for (int x = 0; x < vis_distance.cols; x++) {
+        const float& d = distance.at<float>(y, x);
 
-      float norm_color = (d - min_d) * inv_denom;
-      norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
+        float norm_color = (d - min_d) * inv_denom;
+        norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
 
-      const tinycolormap::Color& color =
-          tinycolormap::GetColor(norm_color, type);
+        const tinycolormap::Color& color =
+            tinycolormap::GetColor(norm_color, type);
 
-      Vec3b& vis = vis_distance.at<Vec3b>(y, x);
+        Vec3b& vis = vis_distance.at<Vec3b>(y, x);
 #ifdef NANOPM_USE_OPENCV
-      // BGR
-      vis[2] = static_cast<uint8_t>(color.r() * 255);
-      vis[1] = static_cast<uint8_t>(color.g() * 255);
-      vis[0] = static_cast<uint8_t>(color.b() * 255);
+        // BGR
+        vis[2] = static_cast<uint8_t>(color.r() * 255);
+        vis[1] = static_cast<uint8_t>(color.g() * 255);
+        vis[0] = static_cast<uint8_t>(color.b() * 255);
 #else
-      // RGB
-      vis[0] = static_cast<uint8_t>(color.r() * 255);
-      vis[1] = static_cast<uint8_t>(color.g() * 255);
-      vis[2] = static_cast<uint8_t>(color.b() * 255);
+        // RGB
+        vis[0] = static_cast<uint8_t>(color.r() * 255);
+        vis[1] = static_cast<uint8_t>(color.g() * 255);
+        vis[2] = static_cast<uint8_t>(color.b() * 255);
 #endif
+      }
     }
   }
-}
-#else
-inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
-  const float* raw_data = reinterpret_cast<float*>(distance.data);
-  const int size = distance.cols * distance.rows;
-  std::vector<float> valid_data;
-  for (int i = 0; i < size; i++) {
-    if (raw_data[i] > 0.0f) {
-      valid_data.push_back(raw_data[i]);
-    }
-  }
-  std::sort(valid_data.begin(), valid_data.end());
-  float r = 0.05f;
-  float min_d = -1.0f;
-  float max_d = 0.0f;
-  if (!valid_data.empty()) {
-    // get 5% an 95% percentile...
-    min_d = valid_data[static_cast<size_t>(valid_data.size() * r)];
-    max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
-  }
-
-  vis_distance = Image3b::zeros(distance.rows, distance.cols);
-
-  float inv_denom = 1.0f / (max_d - min_d);
-  for (int y = 0; y < vis_distance.rows; y++) {
-    for (int x = 0; x < vis_distance.cols; x++) {
-      const float& d = distance.at<float>(y, x);
-
-      float norm_color = (d - min_d) * inv_denom;
-      norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
-
-      Vec3b& vis = vis_distance.at<Vec3b>(y, x);
-
-      vis[2] = static_cast<uint8_t>(norm_color * 255);
-      vis[1] = static_cast<uint8_t>(norm_color * 255);
-      vis[0] = static_cast<uint8_t>(norm_color * 255);
-    }
-  }
-  return true;
-}
 #endif
+  inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
+    const float* raw_data = reinterpret_cast<float*>(distance.data);
+    const int size = distance.cols * distance.rows;
+    std::vector<float> valid_data;
+    for (int i = 0; i < size; i++) {
+      if (raw_data[i] > 0.0f) {
+        valid_data.push_back(raw_data[i]);
+      }
+    }
+    std::sort(valid_data.begin(), valid_data.end());
+    float r = 0.05f;
+    float min_d = -1.0f;
+    float max_d = 0.0f;
+    if (!valid_data.empty()) {
+      // get 5% an 95% percentile...
+      min_d = valid_data[static_cast<size_t>(valid_data.size() * r)];
+      max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
+    }
 
+    vis_distance = Image3b::zeros(distance.rows, distance.cols);
+
+    float inv_denom = 1.0f / (max_d - min_d);
+    for (int y = 0; y < vis_distance.rows; y++) {
+      for (int x = 0; x < vis_distance.cols; x++) {
+        const float& d = distance.at<float>(y, x);
+
+        float norm_color = (d - min_d) * inv_denom;
+        norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
+
+        Vec3b& vis = vis_distance.at<Vec3b>(y, x);
+
+        vis[2] = static_cast<uint8_t>(norm_color * 255);
+        vis[1] = static_cast<uint8_t>(norm_color * 255);
+        vis[0] = static_cast<uint8_t>(norm_color * 255);
+      }
+    }
+    return true;
+  }
+  /* end of definition of interface */
+
+  namespace impl {
+
+  /* definition of interface */
+  inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                           int B_x, int B_y, int patch_size_x, int patch_size_y,
+                           DistanceType distance_type, float& distance) {
+    if (distance_type == DistanceType::SSD) {
+      return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y,
+                 distance);
+    }
+
+    return false;
+  }
+
+  inline bool CalcDistance(const Image3b& A, int A_x, int A_y, const Image3b& B,
+                           int B_x, int B_y, int patch_size_x, int patch_size_y,
+                           DistanceType distance_type, float& distance,
+                           float current_min) {
+    if (distance_type == DistanceType::SSD) {
+      return SSD(A, A_x, A_y, B, B_x, B_y, patch_size_x, patch_size_y, distance,
+                 current_min);
+    }
+
+    return false;
+  }
+
+  inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                  int B_y, int patch_size_x, int patch_size_y, float& val) {
+    val = 0.0f;
+    const float frac = 1.0f / 3.0f;
+    for (int j = 0; j < patch_size_y; j++) {
+      for (int i = 0; i < patch_size_x; i++) {
+        auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
+        auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
+        std::array<float, 3> diff_list;
+
+        for (int c = 0; c < 3; c++) {
+          diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
+        }
+
+        // average of 3 channels
+        float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
+        val += (diff * diff);
+      }
+    }
+    return true;
+  }
+
+  inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
+                  int B_y, int patch_size_x, int patch_size_y, float& val,
+                  float current_min) {
+    val = 0.0f;
+    const float frac = 1.0f / 3.0f;
+    for (int j = 0; j < patch_size_y; j++) {
+      for (int i = 0; i < patch_size_x; i++) {
+        const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
+        const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
+        std::array<float, 3> diff_list;
+
+        for (int c = 0; c < 3; c++) {
+          diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
+        }
+
+        // average of 3 channels
+        float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
+        val += (diff * diff);
+        if (val > current_min) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                                    int x_max, int y_max) {
+    bool ret{false};
+    float new_x = offset[0] + x;
+    if (new_x < 0) {
+      offset[0] = static_cast<float>(-x);
+      ret = true;
+    } else if (new_x > x_max - 1 - patch_size) {
+      offset[0] = static_cast<float>(x_max - 1 - patch_size - x);
+      ret = true;
+    }
+
+    float new_y = offset[1] + y;
+    if (new_y < 0) {
+      offset[1] = static_cast<float>(-y);
+      ret = true;
+    } else if (new_y > y_max - 1 - patch_size) {
+      offset[1] = static_cast<float>(y_max - 1 - patch_size - y);
+      ret = true;
+    }
+
+    return ret;
+  }
+
+  inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
+                          DistanceCache& distance_cache) {
+    bool updated{false};
+
+    Vec2f& current_offset = nnf.at<Vec2f>(y, x);
+
+    std::array<float, 3> dist_list;
+
+    float& current_dist = distance_cache.min_distance().at<float>(y, x);
+    if (current_dist < 0.0f) {
+      distance_cache.query(x, y, static_cast<int>(current_offset[0]),
+                           static_cast<int>(current_offset[1]), current_dist,
+                           updated);
+    }
+    dist_list[0] = current_dist;
+
+    Vec2f offset_l;
+    if (x > 0) {
+      offset_l = nnf.at<Vec2f>(y, x - 1);
+      bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
+                                          x, y, x_max, y_max);
+
+      float& current_l_dist = distance_cache.min_distance().at<float>(y, x - 1);
+
+      if (gurded || current_l_dist < 0.0f) {
+        distance_cache.query(x, y, static_cast<int>(offset_l[0]),
+                             static_cast<int>(offset_l[1]), dist_list[1],
+                             updated);
+      } else {
+        // integral image like technique described in "3.2 Iteration
+        // Efficiency."
+
+        // substract left most col
+        float l_dist;
+        CalcDistance(*distance_cache.A(), x - 1, y, *distance_cache.B(),
+                     static_cast<int>(offset_l[0]) + x - 1,
+                     static_cast<int>(offset_l[1]) + y, 1,
+                     distance_cache.patch_size(),
+                     distance_cache.distance_type(), l_dist);
+
+        // add right col
+        float r_dist;
+        CalcDistance(
+            *distance_cache.A(), x + distance_cache.patch_size() - 1, y,
+            *distance_cache.B(),
+            static_cast<int>(offset_l[0]) + x + distance_cache.patch_size() - 1,
+            static_cast<int>(offset_l[1]) + y, 1, distance_cache.patch_size(),
+            distance_cache.distance_type(), r_dist);
+
+        dist_list[1] = current_l_dist - l_dist + r_dist;
+      }
+
+    } else {
+      dist_list[1] = std::numeric_limits<float>::max();
+    }
+
+    Vec2f offset_u;
+    if (y > 0) {
+      offset_u = nnf.at<Vec2f>(y - 1, x);
+      bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
+                                          x, y, x_max, y_max);
+
+      float& current_u_dist = distance_cache.min_distance().at<float>(y - 1, x);
+
+      if (gurded || current_u_dist < 0.0f) {
+        distance_cache.query(x, y, static_cast<int>(offset_u[0]),
+                             static_cast<int>(offset_u[1]), dist_list[2],
+                             updated);
+
+      } else {
+        // integral image like technique described in "3.2 Iteration
+        // Efficiency."
+
+        // substract upper most col
+        float u_dist;
+        CalcDistance(*distance_cache.A(), x, y - 1, *distance_cache.B(),
+                     static_cast<int>(offset_u[0]) + x,
+                     static_cast<int>(offset_u[1]) + y - 1,
+                     distance_cache.patch_size(), 1,
+                     distance_cache.distance_type(), u_dist);
+
+        // add bottom col
+        float b_dist;
+        CalcDistance(
+            *distance_cache.A(), x, y + distance_cache.patch_size() - 1,
+            *distance_cache.B(), static_cast<int>(offset_u[0]) + x,
+            static_cast<int>(offset_u[1]) + y + distance_cache.patch_size() - 1,
+            distance_cache.patch_size(), 1, distance_cache.distance_type(),
+            b_dist);
+
+        dist_list[2] = current_u_dist - u_dist + b_dist;
+      }
+    } else {
+      dist_list[2] = std::numeric_limits<float>::max();
+    }
+
+    auto min_iter = std::min_element(dist_list.begin(), dist_list.end());
+    size_t min_index = std::distance(dist_list.begin(), min_iter);
+
+    if (min_index == 1) {
+      current_offset = offset_l;
+      current_dist = dist_list[1];
+
+    } else if (min_index == 2) {
+      current_offset = offset_u;
+      current_dist = dist_list[2];
+    }
+
+    return true;
+  }
+
+  inline bool RandomSearch(
+      Image2f& nnf, int x, int y, int x_max, int y_max,
+      DistanceCache& distance_cache, float radius,
+      std::default_random_engine& engine,
+      std::uniform_real_distribution<float>& distribution_rs) {
+    Vec2f& current = nnf.at<Vec2f>(y, x);
+    int offset_x = static_cast<int>(distribution_rs(engine) * radius);
+    int offset_y = static_cast<int>(distribution_rs(engine) * radius);
+    Vec2f update = current;
+    update[0] += offset_x;
+    update[1] += offset_y;
+
+    UpdateOffsetWithGuard(update, distance_cache.patch_size(), x, y, x_max,
+                          y_max);
+
+    float dist;
+    bool updated{false};
+    distance_cache.query(x, y, static_cast<int>(update[0]),
+                         static_cast<int>(update[1]), dist, updated);
+
+    if (updated) {
+      current = update;
+      return true;
+    }
+
+    return false;
+  }
+
+  inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
+                         std::default_random_engine& engine) {
+    if (option.init_type == InitType::RANDOM) {
+      std::uniform_int_distribution<> dist_w(0, B_w - 1 - option.patch_size);
+      std::uniform_int_distribution<> dist_h(0, B_h - 1 - option.patch_size);
+      for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+        for (int i = 0; i < nnf.cols - option.patch_size; i++) {
+          Vec2f& val = nnf.at<Vec2f>(j, i);
+          val[0] = static_cast<float>(dist_w(engine) - i);
+          val[1] = static_cast<float>(dist_h(engine) - j);
+        }
+      }
+    } else {
+      return false;
+    }
+
+    return true;
+  }
+
+  }  // namespace impl
 }  // namespace nanopm
