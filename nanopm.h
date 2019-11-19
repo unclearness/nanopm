@@ -492,7 +492,8 @@ bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
                       tinycolormap::ColormapType type);
 #endif
 
-bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance);
+bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
+                      float max_d = 17000.0f, float min_d = 50.0f);
 
 /* end of declation of interface */
 
@@ -806,23 +807,27 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
   }
 }
 #endif
-inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance) {
+inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance, float max_d, float min_d) {
   const float* raw_data = reinterpret_cast<float*>(distance.data);
   const int size = distance.cols * distance.rows;
-  std::vector<float> valid_data;
-  for (int i = 0; i < size; i++) {
-    if (raw_data[i] > 0.0f) {
-      valid_data.push_back(raw_data[i]);
+
+  if (max_d < 0.0f || min_d < 0.0f || max_d < min_d) {
+    min_d = -1.0f;
+    max_d = 0.0f;
+    std::vector<float> valid_data;
+    for (int i = 0; i < size; i++) {
+      if (raw_data[i] > 0.0f) {
+        valid_data.push_back(raw_data[i]);
+      }
     }
-  }
-  std::sort(valid_data.begin(), valid_data.end());
-  float r = 0.05f;
-  float min_d = -1.0f;
-  float max_d = 0.0f;
-  if (!valid_data.empty()) {
-    // get 5% an 95% percentile...
-    min_d = valid_data[static_cast<size_t>(valid_data.size() * r)];
-    max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
+    std::sort(valid_data.begin(), valid_data.end());
+    float r = 0.05f;
+    if (!valid_data.empty()) {
+      // get 5% an 95% percentile...
+      min_d = valid_data[static_cast<size_t>(valid_data.size() * r)];
+      max_d = valid_data[static_cast<size_t>(valid_data.size() * (1.0f - r))];
+    }
+    printf("max distance %f, min distance %f\n", max_d, min_d);
   }
 
   vis_distance = Image3b::zeros(distance.rows, distance.cols);
