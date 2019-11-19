@@ -1,10 +1,12 @@
 # NanoPM, single header only PatchMatch
-**NanoPM** is a header-only implementation of PatchMatch algorithm written in C++. Could be used for variety of applications.
+**NanoPM** is a single header-only implementation of PatchMatch algorithm written in C++. Could be used for variety of applications.
 
-| |PatchMatch (350 ms.)|BruteForce (18 min.)|
+| |PatchMatch (350 ms.)|BruteForce as Ground Truth (18 min.)|
 |---|---|---|
 |NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/Art.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
 |Distance|![](data/scenes2005/Art/distance.jpg)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
+
+## Example applications
 
 - dense optical flow
 
@@ -13,7 +15,7 @@
 |![](data/scenes2005/Art/view1.png)|![](data/scenes2005/Art/view5.png)|![](data/scenes2005/Art/nnf.jpg)|
 
 - image synthesis (WIP)
-
+- inpainting (WIP)
 
 # Dependencies
 ## Mandatory
