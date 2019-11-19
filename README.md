@@ -3,7 +3,7 @@
 
 | |PatchMatch (350 ms.)|BruteForce as Ground Truth (18 min.)|
 |---|---|---|
-|NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/Art.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
+|NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_nnf_20191120.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
 |Distance|![](data/scenes2005/Art/distance.jpg)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
 
 ## Example applications
