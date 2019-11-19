@@ -451,7 +451,7 @@ struct Option {
   int patch_size = 7;
   int max_iter = 5;
 
-  float w = 16.0f;
+  float w = 32.0f;
   float alpha = 0.5f;
 
   InitType init_type = InitType::RANDOM;
@@ -461,6 +461,11 @@ struct Option {
   unsigned int random_seed = 0;  // for repeatability
 
   DistanceType distance_type = DistanceType::SSD;
+
+  // if true
+  // even iteration: propagate from upper left
+  // odd iteration: propagate from lower right
+  bool alternately_reverse = true;
 
   bool verbose = true;
   std::string debug_dir = "";
@@ -580,7 +585,7 @@ class DistanceCache {
 };
 
 bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
-                 DistanceCache& distance_cache);
+                 DistanceCache& distance_cache, bool reverse);
 
 bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
                   DistanceCache& distance_cache, float radius,
@@ -591,7 +596,7 @@ bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                 std::default_random_engine& engine);
 
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                           int x_max, int y_max);
+                           int x_max, int y_max, bool reverse = false);
 
 bool DebugDump(const std::string& debug_dir, const std::string& postfix,
                const Image2f& nnf, const Image1f& distance);
@@ -645,21 +650,43 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
     // todo: paralellize here.
     // "in practice long propagations are not needed"
     // See "3.2 Iteration GPU implementation." of the original paper
-    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
-      if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
-        impl::DebugDump(
-            option.debug_dir,
-            std::to_string(iter) + "_" + std::to_string(j / (nnf.rows / 4)),
-            nnf, distance_cache.min_distance());
+
+    if (!option.alternately_reverse ||
+        (option.alternately_reverse && iter % 2 == 0)) {
+      for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+        if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
+          impl::DebugDump(
+              option.debug_dir,
+              std::to_string(iter) + "_" + std::to_string(j / (nnf.rows / 4)),
+              nnf, distance_cache.min_distance());
+        }
+
+        for (int i = 0; i < nnf.cols - option.patch_size; i++) {
+          // Propagation
+          impl::Propagation(nnf, i, j, B.cols, B.rows, distance_cache, false);
+
+          // Random search
+          impl::RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius,
+                             engine, distribution_rs);
+        }
       }
+    } else if (option.alternately_reverse && iter % 2 != 0) {
+      for (int j = nnf.rows - option.patch_size; j >= 0; j--) {
+        if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
+          impl::DebugDump(option.debug_dir,
+                          std::to_string(iter) + "_" +
+                              std::to_string(4 - j / (nnf.rows / 4)),
+                          nnf, distance_cache.min_distance());
+        }
 
-      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
-        // Propagation
-        impl::Propagation(nnf, i, j, B.cols, B.rows, distance_cache);
+        for (int i = nnf.cols - option.patch_size; i >= 0; i--) {
+          // Propagation
+          impl::Propagation(nnf, i, j, B.cols, B.rows, distance_cache, true);
 
-        // Random search
-        impl::RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius,
-                           engine, distribution_rs);
+          // Random search
+          impl::RandomSearch(nnf, i, j, B.cols, B.rows, distance_cache, radius,
+                             engine, distribution_rs);
+        }
       }
     }
 
@@ -892,8 +919,32 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   return true;
 }
 
-inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                                  int x_max, int y_max) {
+inline bool UpdateOffsetWithGuardBackward(Vec2f& offset, int patch_size, int x,
+                                          int y, int x_max, int y_max) {
+  bool ret{false};
+  float new_x = offset[0] + x;
+  if (new_x < patch_size) {
+    offset[0] = static_cast<float>(-x + patch_size);
+    ret = true;
+  } else if (new_x > x_max - 1) {
+    offset[0] = static_cast<float>(x_max - 1 - x);
+    ret = true;
+  }
+
+  float new_y = offset[1] + y;
+  if (new_y < patch_size) {
+    offset[1] = static_cast<float>(-y + patch_size);
+    ret = true;
+  } else if (new_y > y_max - 1) {
+    offset[1] = static_cast<float>(y_max - 1 - y);
+    ret = true;
+  }
+
+  return ret;
+}
+
+inline bool UpdateOffsetWithGuardForward(Vec2f& offset, int patch_size, int x,
+                                         int y, int x_max, int y_max) {
   bool ret{false};
   float new_x = offset[0] + x;
   if (new_x < 0) {
@@ -916,8 +967,17 @@ inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
   return ret;
 }
 
+inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                                  int x_max, int y_max, bool reverse) {
+  if (reverse) {
+    return UpdateOffsetWithGuardBackward(offset, patch_size, x, y, x_max,
+                                         y_max);
+  }
+  return UpdateOffsetWithGuardForward(offset, patch_size, x, y, x_max, y_max);
+}
+
 inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
-                        DistanceCache& distance_cache) {
+                        DistanceCache& distance_cache, bool reverse) {
   bool updated{false};
 
   Vec2f& current_offset = nnf.at<Vec2f>(y, x);
@@ -933,7 +993,7 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   dist_list[0] = current_dist;
 
   Vec2f offset_l;
-  if (x > 0) {
+  if (!reverse && x > 0) {
     offset_l = nnf.at<Vec2f>(y, x - 1);
     bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
                                         x, y, x_max, y_max);
@@ -968,12 +1028,47 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
       dist_list[1] = current_l_dist - l_dist + r_dist;
     }
 
+  } else if (reverse && x > distance_cache.patch_size() - 1) {
+    offset_l = nnf.at<Vec2f>(y, x + 1);
+    bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
+                                        x, y, x_max, y_max, true);
+
+    float& current_l_dist = distance_cache.min_distance().at<float>(y, x + 1);
+
+    if (gurded || current_l_dist < 0.0f) {
+      distance_cache.query(x, y, static_cast<int>(offset_l[0]),
+                           static_cast<int>(offset_l[1]), dist_list[1],
+                           updated);
+    } else {
+      // integral image like technique described in "3.2 Iteration
+      // Efficiency."
+
+      // substract right col
+      float r_dist;
+      CalcDistance(
+          *distance_cache.A(), x + distance_cache.patch_size(), y,
+          *distance_cache.B(),
+          static_cast<int>(offset_l[0]) + x + distance_cache.patch_size(),
+          static_cast<int>(offset_l[1]) + y, 1, distance_cache.patch_size(),
+          distance_cache.distance_type(), r_dist);
+
+      // add left col
+      float l_dist;
+      CalcDistance(*distance_cache.A(), x, y, *distance_cache.B(),
+                   static_cast<int>(offset_l[0]) + x,
+                   static_cast<int>(offset_l[1]) + y, 1,
+                   distance_cache.patch_size(), distance_cache.distance_type(),
+                   l_dist);
+
+      dist_list[1] = current_l_dist + l_dist - r_dist;
+    }
+
   } else {
     dist_list[1] = std::numeric_limits<float>::max();
   }
 
   Vec2f offset_u;
-  if (y > 0) {
+  if (!reverse && y > 0) {
     offset_u = nnf.at<Vec2f>(y - 1, x);
     bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
                                         x, y, x_max, y_max);
@@ -1008,6 +1103,42 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
 
       dist_list[2] = current_u_dist - u_dist + b_dist;
     }
+  } else if (reverse && y > distance_cache.patch_size() - 1) {
+    offset_u = nnf.at<Vec2f>(y + 1, x);
+    bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
+                                        x, y, x_max, y_max, true);
+
+    float& current_u_dist = distance_cache.min_distance().at<float>(y + 1, x);
+
+    if (gurded || current_u_dist < 0.0f) {
+      distance_cache.query(x, y, static_cast<int>(offset_u[0]),
+                           static_cast<int>(offset_u[1]), dist_list[2],
+                           updated);
+
+    } else {
+      // integral image like technique described in "3.2 Iteration
+      // Efficiency."
+
+      // substract bottom most col
+      float b_dist;
+      CalcDistance(
+          *distance_cache.A(), x, y + +distance_cache.patch_size(),
+          *distance_cache.B(), static_cast<int>(offset_u[0]) + x,
+          static_cast<int>(offset_u[1]) + y + +distance_cache.patch_size(),
+          distance_cache.patch_size(), 1, distance_cache.distance_type(),
+          b_dist);
+
+      // add upper col
+      float u_dist;
+      CalcDistance(*distance_cache.A(), x, y, *distance_cache.B(),
+                   static_cast<int>(offset_u[0]) + x,
+                   static_cast<int>(offset_u[1]) + y,
+                   distance_cache.patch_size(), 1,
+                   distance_cache.distance_type(), u_dist);
+
+      dist_list[2] = current_u_dist - b_dist + u_dist;
+    }
+
   } else {
     dist_list[2] = std::numeric_limits<float>::max();
   }
