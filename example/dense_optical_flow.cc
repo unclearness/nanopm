@@ -9,6 +9,8 @@
 #include <numeric>
 #include <vector>
 
+//#define TEST_BRUTE_FORCE
+
 template <typename T = double>
 class Timer {
   std::chrono::system_clock::time_point start_t_, end_t_;
@@ -58,18 +60,28 @@ int main(int argc, char* argv[]) {
   nanopm::Image2f nnf;
   nanopm::Image1f distance;
   nanopm::Option option;
+  nanopm::Image3b vis_nnf, vis_distance;
   option.debug_dir = "./";
   Timer<> timer;
   timer.Start();
   nanopm::Compute(A, B, nnf, distance, option);
   timer.End();
   printf("nanopm::Compute %fms\n", timer.elapsed_msec());
-
-  nanopm::Image3b vis_nnf, vis_distance;
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(data_dir + "nnf.jpg", vis_nnf);
   nanopm::ColorizeDistance(distance, vis_distance);
   nanopm::imwrite(data_dir + "distance.jpg", vis_distance);
+
+#ifdef TEST_BRUTE_FORCE
+  timer.Start();
+  nanopm::BruteForce(A, B, nnf, distance, option);
+  timer.End();
+  printf("nanopm::BruteForce %fms\n", timer.elapsed_msec());
+  nanopm::ColorizeNnf(nnf, vis_nnf);
+  nanopm::imwrite(data_dir + "nnf_bruteforce.jpg", vis_nnf);
+  nanopm::ColorizeDistance(distance, vis_distance);
+  nanopm::imwrite(data_dir + "distance_bruteforce.jpg", vis_distance);
+#endif
 
   return 0;
 }
