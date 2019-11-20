@@ -57,19 +57,19 @@ if(NOT DEFINED TINYCOLORMAP_INSTALL_DIR)
 endif()
 
 # switch for optional libraries
-option(NANOPM_USE_OPENMP "Use OpenMP to enable parallelization" ON)
+option(NANOPM_USE_OPENMP "Use OpenMP to enable parallelization" OFF)
 message("NANOPM_USE_OPENMP: ${NANOPM_USE_OPENMP}")
 if(NANOPM_USE_OPENMP)
   add_definitions(-DNANOPM_USE_OPENMP)
 endif()
 
-option(NANOPM_USE_STB "Use stb to enable image i/o" OFF)
+option(NANOPM_USE_STB "Use stb to enable image i/o" ON)
 message("NANOPM_USE_STB: ${NANOPM_USE_STB}")
 if(NANOPM_USE_STB)
   add_definitions(-DNANOPM_USE_STB)
 endif()
 
-option(NANOPM_USE_OPENCV "Use OpenCV as Image class" ON)
+option(NANOPM_USE_OPENCV "Use OpenCV as Image class" OFF)
 message("NANOPM_USE_OPENCV: ${NANOPM_USE_OPENCV}")
 if(NANOPM_USE_OPENCV)
   find_package(OpenCV REQUIRED)

@@ -3,13 +3,17 @@
  * All rights reserved.
  */
 
+#ifdef NANOPM_USE_STB
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#endif
 #include "nanopm.h"
 
 #include <chrono>  //NOLINT
 #include <numeric>
 #include <vector>
 
-//#define TEST_BRUTE_FORCE
+// #define TEST_BRUTE_FORCE
 
 template <typename T = double>
 class Timer {

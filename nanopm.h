@@ -14,9 +14,11 @@
 
 #define _USE_MATH_DEFINES
 #include <cmath>
+#include <cstdarg>
 
 #include <array>
 #include <random>
+#include <string>
 #include <vector>
 
 #ifdef NANOPM_USE_STB
@@ -109,11 +111,15 @@ template <typename TT, int N>
 using Vec = std::array<TT, N>;
 
 using Vec1f = Vec<float, 1>;
-using Vec1i = std::array<int, 1>;
-using Vec1w = std::array<std::uint16_t, 1>;
-using Vec1b = std::array<unsigned char, 1>;
-using Vec3b = std::array<unsigned char, 3>;
-using Vec3f = std::array<float, 3>;
+using Vec1i = Vec<int, 1>;
+using Vec1w = Vec<std::uint16_t, 1>;
+using Vec1b = Vec<unsigned char, 1>;
+using Vec2f = Vec<float, 2>;
+using Vec3b = Vec<unsigned char, 3>;
+using Vec3f = Vec<float, 3>;
+
+void LOGW(const char* format, ...);
+void LOGE(const char* format, ...);
 
 template <typename T>
 class Image {
@@ -339,6 +345,7 @@ using Image1w = Image<Vec1w>;  // For depth image with 16 bit (unsigned
                                // short) mm-scale format
 using Image1i = Image<Vec1i>;  // For face visibility. face id is within int32_t
 using Image1f = Image<Vec1f>;  // For depth image with any scale
+using Image2f = Image<Vec2f>;
 using Image3f = Image<Vec3f>;  // For normal or point cloud. XYZ order.
 
 enum ImreadModes {
@@ -495,6 +502,12 @@ bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
 bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
                       float max_d = 17000.0f, float min_d = 50.0f);
 
+#if NANOPM_USE_OPENCV
+void cvtColorHsv2Bgr(const Image3b& src, Image3b& dst);
+#else
+void cvtColorHsv2Rgb(const Image3b& src, Image3b& dst);
+#endif
+
 /* end of declation of interface */
 
 namespace impl {
@@ -606,6 +619,19 @@ bool DebugDump(const std::string& debug_dir, const std::string& postfix,
 }  // namespace impl
 
 /* definition of interface */
+inline void LOGW(const char* format, ...) {
+  va_list va;
+  va_start(va, format);
+  vprintf(format, va);
+  va_end(va);
+}
+inline void LOGE(const char* format, ...) {
+  va_list va;
+  va_start(va, format);
+  vprintf(format, va);
+  va_end(va);
+}
+
 inline bool Compute(const unsigned char* A, int A_w, int A_h,
                     const unsigned char* B, int B_w, int B_h, float* nnf,
                     float* distance, const Option& option) {
@@ -729,8 +755,8 @@ inline bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
 
           if (dist < current_dist) {
             current_dist = dist;
-            current_nn[0] = ii - i;
-            current_nn[1] = jj - j;
+            current_nn[0] = static_cast<float>(ii - i);
+            current_nn[1] = static_cast<float>(jj - j);
           }
         }
       }
@@ -753,8 +779,6 @@ inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
 
       float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + M_PI);
       float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
-      // printf("angle %f\n", angle * inv_2pi * 360);
-      // printf("magnitude %f\n", magnitude);
       float norm_magnitude = std::max(
           0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
 
@@ -765,7 +789,11 @@ inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
     }
   }
 
-  cv::cvtColor(vis_nnf_hsv, vis_nnf, cv::COLOR_HSV2BGR);
+#if NANOPM_USE_OPENCV
+  cvtColorHsv2Bgr(vis_nnf_hsv, vis_nnf);
+#else
+  cvtColorHsv2Rgb(vis_nnf_hsv, vis_nnf);
+#endif
 
   return true;
 }
@@ -807,7 +835,8 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
   }
 }
 #endif
-inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance, float max_d, float min_d) {
+inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
+                             float max_d, float min_d) {
   const float* raw_data = reinterpret_cast<float*>(distance.data);
   const int size = distance.cols * distance.rows;
 
@@ -849,6 +878,68 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance, flo
   }
   return true;
 }
+
+#if NANOPM_USE_OPENCV
+inline void cvtColorHsv2Bgr(const Image3b& src, Image3b& dst) {
+  cv::cvtColor(src, dst, cv::COLOR_HSV2BGR);
+}
+#else
+void cvtColorHsv2Rgb(const Image3b& src, Image3b& dst) {
+  dst = Image3b::zeros(src.rows, src.cols);
+
+  for (int y = 0; y < dst.rows; y++) {
+    for (int x = 0; x < dst.cols; x++) {
+      const Vec3b& hsv = src.at<Vec3b>(y, x);
+
+      float h = hsv[0] / 179.0f;
+      float s = hsv[1] / 255.0f;
+      float v = hsv[2] / 255.0f;
+
+      float r = v;
+      float g = v;
+      float b = v;
+      if (s > 0.0f) {
+        h *= 6.0f;
+        int i = (int)h;
+        float f = h - (float)i;
+        switch (i) {
+          default:
+          case 0:
+            g *= 1 - s * (1 - f);
+            b *= 1 - s;
+            break;
+          case 1:
+            r *= 1 - s * f;
+            b *= 1 - s;
+            break;
+          case 2:
+            r *= 1 - s;
+            b *= 1 - s * (1 - f);
+            break;
+          case 3:
+            r *= 1 - s;
+            g *= 1 - s * f;
+            break;
+          case 4:
+            r *= 1 - s * (1 - f);
+            g *= 1 - s;
+            break;
+          case 5:
+            g *= 1 - s;
+            b *= 1 - s * f;
+            break;
+        }
+      }
+
+      Vec3b& rgb = dst.at<Vec3b>(y, x);
+      rgb[0] = static_cast<unsigned char>(r * 255);
+      rgb[1] = static_cast<unsigned char>(g * 255);
+      rgb[2] = static_cast<unsigned char>(b * 255);
+    }
+  }
+}
+#endif
+
 /* end of definition of interface */
 
 namespace impl {
@@ -997,7 +1088,7 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
   }
   dist_list[0] = current_dist;
 
-  Vec2f offset_l;
+  Vec2f offset_l = current_offset;
   if (!reverse && x > 0) {
     offset_l = nnf.at<Vec2f>(y, x - 1);
     bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
@@ -1072,7 +1163,7 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
     dist_list[1] = std::numeric_limits<float>::max();
   }
 
-  Vec2f offset_u;
+  Vec2f offset_u = current_offset;
   if (!reverse && y > 0) {
     offset_u = nnf.at<Vec2f>(y - 1, x);
     bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
