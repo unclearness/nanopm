@@ -1,7 +1,7 @@
 # NanoPM, single header only PatchMatch
 **NanoPM** is a single header-only implementation of PatchMatch algorithm written in C++. Could be used for variety of applications.
 
-| |PatchMatch (350 ms.)|BruteForce as Ground Truth (18 min.)|
+| |PatchMatch (350 ms. a single thread)|BruteForce as Ground Truth (3 min. 8 threads with OpenMP)|
 |---|---|---|
 |NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_nnf_20191120.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
 |Distance|![](https://raw.github.com/wiki/unclearness/nanopm/images/art_dist_20191120.gif)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
