@@ -750,10 +750,11 @@ inline bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
       for (int jj = 0; jj < B.rows - option.patch_size; jj++) {
         for (int ii = 0; ii < B.cols - option.patch_size; ii++) {
           float dist;
-          impl::CalcDistance(A, i, j, B, ii, jj, option.patch_size,
-                             option.patch_size, option.distance_type, dist);
+          bool ret = impl::CalcDistance(A, i, j, B, ii, jj, option.patch_size,
+                                        option.patch_size, option.distance_type,
+                                        dist, current_dist);
 
-          if (dist < current_dist) {
+          if (ret && dist < current_dist) {
             current_dist = dist;
             current_nn[0] = static_cast<float>(ii - i);
             current_nn[1] = static_cast<float>(jj - j);
