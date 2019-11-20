@@ -17,22 +17,14 @@
 - image synthesis (WIP)
 - inpainting (WIP)
 
-# Dependencies
-## Mandatory
-- None
-## Optional
-- OpenCV
-    - cv::Mat_ as Image class. Image I/O
-- stb
+# Optional Dependencies
+You can include optional dependencies in nanopm.h (mainly for I/O) but it will no longer be "single header-only".
+- stb (default ON)
     https://github.com/nothings/stb
     - Image I/O
-- LodePNG
-    https://github.com/lvandeve/lodepng
-    - .png I/O particularly for 16bit writing that is not supported by stb
-- tinycolormap
-    https://github.com/yuki-koyama/tinycolormap
-    - Colorization.
-- OpenMP
+- OpenCV (default OFF)
+    - cv::Mat_ as Image class. Image I/O
+- OpenMP (default OFF)
     (if supported by your compiler)
     - Multi-thread accelaration
 
