@@ -698,7 +698,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
         }
       }
     } else if (option.alternately_reverse && iter % 2 != 0) {
-      for (int j = nnf.rows - option.patch_size; j >= 0; j--) {
+      for (int j = nnf.rows - option.patch_size - 1; j >= 0; j--) {
         if (j % (nnf.rows / 4) == 0 && !option.debug_dir.empty()) {
           impl::DebugDump(option.debug_dir,
                           std::to_string(iter) + "_" +
@@ -706,7 +706,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
                           nnf, distance_cache.min_distance());
         }
 
-        for (int i = nnf.cols - option.patch_size; i >= 0; i--) {
+        for (int i = nnf.cols - option.patch_size - 1; i >= 0; i--) {
           // Propagation
           impl::Propagation(nnf, i, j, B.cols, B.rows, distance_cache, true);
 
