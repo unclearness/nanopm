@@ -73,7 +73,11 @@ int main(int argc, char* argv[]) {
   printf("nanopm::Compute %fms\n", timer.elapsed_msec());
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(data_dir + "nnf.jpg", vis_nnf);
-  nanopm::ColorizeDistance(distance, vis_distance);
+  float mean, stddev;
+  float max_d = 17000.0f;
+  float min_d = 50.0f;
+  nanopm::ColorizeDistance(distance, vis_distance, max_d, min_d, mean, stddev);
+  printf("distance mean %f, stddev %f\n", mean, stddev);
   nanopm::imwrite(data_dir + "distance.jpg", vis_distance);
 
 #ifdef TEST_BRUTE_FORCE

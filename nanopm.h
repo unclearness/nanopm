@@ -500,7 +500,7 @@ bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
 #endif
 
 bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
-                      float max_d = 17000.0f, float min_d = 50.0f);
+                      float& max_d, float& min_d, float& mean, float& stddev);
 
 #if NANOPM_USE_OPENCV
 void cvtColorHsv2Bgr(const Image3b& src, Image3b& dst);
@@ -837,14 +837,15 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
 }
 #endif
 inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
-                             float max_d, float min_d) {
+                             float& max_d, float& min_d, float& mean,
+                             float& stddev) {
   const float* raw_data = reinterpret_cast<float*>(distance.data);
   const int size = distance.cols * distance.rows;
 
+  std::vector<float> valid_data;
   if (max_d < 0.0f || min_d < 0.0f || max_d < min_d) {
     min_d = -1.0f;
     max_d = 0.0f;
-    std::vector<float> valid_data;
     for (int i = 0; i < size; i++) {
       if (raw_data[i] > 0.0f) {
         valid_data.push_back(raw_data[i]);
@@ -863,9 +864,14 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
   vis_distance = Image3b::zeros(distance.rows, distance.cols);
 
   float inv_denom = 1.0f / (max_d - min_d);
+  valid_data.clear();
   for (int y = 0; y < vis_distance.rows; y++) {
     for (int x = 0; x < vis_distance.cols; x++) {
       const float& d = distance.at<float>(y, x);
+
+      if (d >= min_d && d <= max_d) {
+        valid_data.push_back(d);
+      }
 
       float norm_color = d < 0.0f ? 1.0f : (d - min_d) * inv_denom;
       norm_color = std::min(std::max(norm_color, 0.0f), 1.0f);
@@ -877,6 +883,22 @@ inline bool ColorizeDistance(const Image1f& distance, Image3b& vis_distance,
       vis[0] = static_cast<uint8_t>(norm_color * 255);
     }
   }
+
+  mean = -1.0f;
+  stddev = -1.0f;
+  if (valid_data.size() > 1) {
+    double sum = 0, sq_sum = 0;
+    for (const float& d : valid_data) {
+      sum += d;
+      sq_sum += d * d;
+    }
+    mean = static_cast<float>(sum / static_cast<double>(valid_data.size()));
+    double variance =
+        (sq_sum - sum * sum / static_cast<double>(valid_data.size())) /
+        (static_cast<double>(valid_data.size()) - 1);
+    stddev = static_cast<float>(std::sqrt(variance));
+  }
+
   return true;
 }
 
@@ -1276,7 +1298,11 @@ inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
   Image3b vis_nnf, vis_distance;
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(debug_dir + "nnf_" + postfix + ".jpg", vis_nnf);
-  nanopm::ColorizeDistance(distance, vis_distance);
+  float mean, stddev;
+  float max_d = 17000.0f;
+  float min_d = 50.0f;
+  nanopm::ColorizeDistance(distance, vis_distance, max_d, min_d, mean, stddev);
+  printf("distance mean %f, stddev %f\n", mean, stddev);
   nanopm::imwrite(debug_dir + "distance_" + postfix + ".jpg", vis_distance);
 
   return true;
