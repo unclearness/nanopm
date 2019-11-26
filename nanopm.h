@@ -610,7 +610,7 @@ bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
                 std::default_random_engine& engine);
 
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                           int x_max, int y_max, bool reverse = false);
+                           int x_max, int y_max);
 
 bool DebugDump(const std::string& debug_dir, const std::string& postfix,
                const Image2f& nnf, const Image1f& distance);
@@ -1016,32 +1016,8 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
   return true;
 }
 
-inline bool UpdateOffsetWithGuardBackward(Vec2f& offset, int patch_size, int x,
-                                          int y, int x_max, int y_max) {
-  bool ret{false};
-  float new_x = offset[0] + x;
-  if (new_x < patch_size) {
-    offset[0] = static_cast<float>(-x + patch_size);
-    ret = true;
-  } else if (new_x > x_max - 1) {
-    offset[0] = static_cast<float>(x_max - 1 - x);
-    ret = true;
-  }
-
-  float new_y = offset[1] + y;
-  if (new_y < patch_size) {
-    offset[1] = static_cast<float>(-y + patch_size);
-    ret = true;
-  } else if (new_y > y_max - 1) {
-    offset[1] = static_cast<float>(y_max - 1 - y);
-    ret = true;
-  }
-
-  return ret;
-}
-
-inline bool UpdateOffsetWithGuardForward(Vec2f& offset, int patch_size, int x,
-                                         int y, int x_max, int y_max) {
+inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
+                                  int x_max, int y_max) {
   bool ret{false};
   float new_x = offset[0] + x;
   if (new_x < 0) {
@@ -1062,15 +1038,6 @@ inline bool UpdateOffsetWithGuardForward(Vec2f& offset, int patch_size, int x,
   }
 
   return ret;
-}
-
-inline bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
-                                  int x_max, int y_max, bool reverse) {
-  if (reverse) {
-    return UpdateOffsetWithGuardBackward(offset, patch_size, x, y, x_max,
-                                         y_max);
-  }
-  return UpdateOffsetWithGuardForward(offset, patch_size, x, y, x_max, y_max);
 }
 
 inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
@@ -1125,10 +1092,10 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
       dist_list[1] = current_l_dist - l_dist + r_dist;
     }
 
-  } else if (reverse && x > distance_cache.patch_size() - 1) {
+  } else if (reverse) {
     offset_l = nnf.at<Vec2f>(y, x + 1);
     bool gurded = UpdateOffsetWithGuard(offset_l, distance_cache.patch_size(),
-                                        x, y, x_max, y_max, true);
+                                        x, y, x_max, y_max);
 
     float& current_l_dist = distance_cache.min_distance().at<float>(y, x + 1);
 
@@ -1200,10 +1167,10 @@ inline bool Propagation(Image2f& nnf, int x, int y, int x_max, int y_max,
 
       dist_list[2] = current_u_dist - u_dist + b_dist;
     }
-  } else if (reverse && y > distance_cache.patch_size() - 1) {
+  } else if (reverse) {
     offset_u = nnf.at<Vec2f>(y + 1, x);
     bool gurded = UpdateOffsetWithGuard(offset_u, distance_cache.patch_size(),
-                                        x, y, x_max, y_max, true);
+                                        x, y, x_max, y_max);
 
     float& current_u_dist = distance_cache.min_distance().at<float>(y + 1, x);
 
