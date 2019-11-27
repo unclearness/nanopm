@@ -1312,8 +1312,13 @@ inline bool RandomSearch(
     std::default_random_engine& engine,
     std::uniform_real_distribution<float>& distribution_rs) {
   Vec2f& current = nnf.at<Vec2f>(y, x);
-  int offset_x = static_cast<int>(distribution_rs(engine) * radius);
-  int offset_y = static_cast<int>(distribution_rs(engine) * radius);
+  int offset_x = static_cast<int>(std::round(distribution_rs(engine) * radius));
+  int offset_y = static_cast<int>(std::round(distribution_rs(engine) * radius));
+  // sample again if offset is zero...
+  while (offset_x == 0 && offset_y == 0) {
+    offset_x = static_cast<int>(std::round(distribution_rs(engine) * radius));
+    offset_y = static_cast<int>(std::round(distribution_rs(engine) * radius));
+  }
   Vec2f update = current;
   update[0] += offset_x;
   update[1] += offset_y;
