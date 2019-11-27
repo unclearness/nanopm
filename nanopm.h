@@ -907,7 +907,7 @@ inline void cvtColorHsv2Bgr(const Image3b& src, Image3b& dst) {
   cv::cvtColor(src, dst, cv::COLOR_HSV2BGR);
 }
 #else
-void cvtColorHsv2Rgb(const Image3b& src, Image3b& dst) {
+inline void cvtColorHsv2Rgb(const Image3b& src, Image3b& dst) {
   dst = Image3b::zeros(src.rows, src.cols);
 
   for (int y = 0; y < dst.rows; y++) {
