@@ -700,10 +700,11 @@ inline bool Compute(const unsigned char* A, int A_w, int A_h,
 
 inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
                     Image1f& distance, const Option& option) {
+  impl::Timer<> timer, whole_timer;
+  whole_timer.Start();
+
   std::default_random_engine engine(option.random_seed);
   std::uniform_real_distribution<float> distribution_rs(-1.0f, 1.0f);
-
-  impl::Timer<> timer;
 
   // memory allocation of nnf
   nnf = Image2f::zeros(A.rows, A.cols);
@@ -780,6 +781,11 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
   distance = Image1f::zeros(A.rows, A.cols);
   distance_cache.min_distance().copyTo(distance);
+
+  whole_timer.End();
+  if (option.verbose) {
+    printf("nanopm::Compute %fms\n", whole_timer.elapsed_msec());
+  }
 
   return true;
 }

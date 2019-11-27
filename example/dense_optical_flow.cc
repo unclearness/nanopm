@@ -31,11 +31,7 @@ int main(int argc, char* argv[]) {
   nanopm::Option option;
   nanopm::Image3b vis_nnf, vis_distance;
   option.debug_dir = "./";
-  nanopm::impl::Timer<> timer;
-  timer.Start();
   nanopm::Compute(A, B, nnf, distance, option);
-  timer.End();
-  printf("nanopm::Compute %fms\n", timer.elapsed_msec());
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(data_dir + "nnf.jpg", vis_nnf);
   float mean, stddev;
