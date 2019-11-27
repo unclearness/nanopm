@@ -12,11 +12,10 @@
 
 #pragma once
 
-#define _USE_MATH_DEFINES
-#include <cmath>
 #include <cstdarg>
 
 #include <array>
+#include <chrono>
 #include <random>
 #include <string>
 #include <vector>
@@ -463,7 +462,7 @@ struct Option {
 
   InitType init_type = InitType::RANDOM;
   Image2f initial;
-  int initial_random_iter = 5;
+  int initial_random_iter = 3;
 
   unsigned int random_seed = 0;  // for repeatability
 
@@ -606,14 +605,59 @@ bool RandomSearch(Image2f& nnf, int x, int y, int x_max, int y_max,
                   std::default_random_engine& engine,
                   std::uniform_real_distribution<float>& distribution_rs);
 
-bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
+bool Initialize(const Image3b& A, const Image3b& B, Image2f& nnf,
+                DistanceCache& distance_cahce, const Option& option,
                 std::default_random_engine& engine);
+
+bool InitializeRandomOnce(Image2f& nnf, int B_w, int B_h, const Option& option,
+                          std::default_random_engine& engine);
+
+bool InitializeRandomIterate(const Image3b& A, const Image3b& B, Image2f& nnf,
+                             DistanceCache& distance_cache,
+                             const Option& option,
+                             std::default_random_engine& engine,
+                             const Image2f& initial = Image2f());
 
 bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
 bool DebugDump(const std::string& debug_dir, const std::string& postfix,
-               const Image2f& nnf, const Image1f& distance);
+               const Image2f& nnf, const Image1f& distance, bool verbose);
+
+template <typename T = double>
+class Timer {
+  std::chrono::system_clock::time_point start_t_, end_t_;
+  T elapsed_msec_{-1};
+  size_t history_num_{30};
+  std::vector<T> history_;
+
+ public:
+  Timer() {}
+  ~Timer() {}
+  explicit Timer(size_t history_num) : history_num_(history_num) {}
+
+  std::chrono::system_clock::time_point start_t() const { return start_t_; }
+  std::chrono::system_clock::time_point end_t() const { return end_t_; }
+
+  void Start() { start_t_ = std::chrono::system_clock::now(); }
+  void End() {
+    end_t_ = std::chrono::system_clock::now();
+    elapsed_msec_ = static_cast<T>(
+        std::chrono::duration_cast<std::chrono::microseconds>(end_t_ - start_t_)
+            .count() *
+        0.001);
+
+    history_.push_back(elapsed_msec_);
+    if (history_num_ < history_.size()) {
+      history_.erase(history_.begin());
+    }
+  }
+  T elapsed_msec() const { return elapsed_msec_; }
+  T average_msec() const {
+    return static_cast<T>(std::accumulate(history_.begin(), history_.end(), 0) /
+                          history_.size());
+  }
+};
 
 /* end of declation of private interface */
 }  // namespace impl
@@ -659,16 +703,23 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   std::default_random_engine engine(option.random_seed);
   std::uniform_real_distribution<float> distribution_rs(-1.0f, 1.0f);
 
+  impl::Timer<> timer;
+
   // memory allocation of nnf
   nnf = Image2f::zeros(A.rows, A.cols);
 
-  // initialize
-  impl::Initialize(nnf, B.cols, B.rows, option, engine);
-  // return true;
   impl::DistanceCache distance_cache(A, B, option.distance_type,
                                      option.patch_size);
+  // initialize
+  timer.Start();
+  impl::Initialize(A, B, nnf, distance_cache, option, engine);
+  timer.End();
+  if (option.verbose) {
+    printf("nanopm::impl::Initialize %fms\n", timer.elapsed_msec());
+  }
 
   // iteration
+  timer.Start();
   for (int iter = 0; iter < option.max_iter; iter++) {
     float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
     if (option.verbose) {
@@ -685,7 +736,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
           impl::DebugDump(
               option.debug_dir,
               std::to_string(iter) + "_" + std::to_string(j / (nnf.rows / 4)),
-              nnf, distance_cache.min_distance());
+              nnf, distance_cache.min_distance(), option.verbose);
         }
 
         for (int i = 0; i < nnf.cols - option.patch_size; i++) {
@@ -703,7 +754,7 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
           impl::DebugDump(option.debug_dir,
                           std::to_string(iter) + "_" +
                               std::to_string(4 - j / (nnf.rows / 4)),
-                          nnf, distance_cache.min_distance());
+                          nnf, distance_cache.min_distance(), option.verbose);
         }
 
         for (int i = nnf.cols - option.patch_size - 1; i >= 0; i--) {
@@ -719,8 +770,12 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
     if (!option.debug_dir.empty()) {
       impl::DebugDump(option.debug_dir, std::to_string(iter) + "_4", nnf,
-                      distance_cache.min_distance());
+                      distance_cache.min_distance(), option.verbose);
     }
+  }
+  timer.End();
+  if (option.verbose) {
+    printf("nanopm::Compute main loop %fms\n", timer.elapsed_msec());
   }
 
   distance = Image1f::zeros(A.rows, A.cols);
@@ -769,6 +824,7 @@ inline bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
 
 inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
                         float min_mag, unsigned char v) {
+  const double M_PI{3.14159265358979323846};  // pi
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 
@@ -1272,29 +1328,86 @@ inline bool RandomSearch(
   return false;
 }
 
-inline bool Initialize(Image2f& nnf, int B_w, int B_h, const Option& option,
-                       std::default_random_engine& engine) {
-  if (option.init_type == InitType::RANDOM) {
-    std::uniform_int_distribution<> dist_w(0, B_w - 1 - option.patch_size);
-    std::uniform_int_distribution<> dist_h(0, B_h - 1 - option.patch_size);
-    for (int j = 0; j < nnf.rows - option.patch_size; j++) {
-      for (int i = 0; i < nnf.cols - option.patch_size; i++) {
-        Vec2f& val = nnf.at<Vec2f>(j, i);
-        val[0] = static_cast<float>(dist_w(engine) - i);
-        val[1] = static_cast<float>(dist_h(engine) - j);
+inline bool MergeMultipleNnfs(const std::vector<Image2f>& nnf_list,
+                              Image2f& nnf, DistanceCache& distance_cahce,
+                              const Option& option) {
+  const int num = static_cast<int>(nnf_list.size());
+  if (num < 1) {
+    return false;
+  } else if (num == 1) {
+    nnf_list[0].copyTo(nnf);
+    return true;
+  }
+  for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+    for (int i = 0; i < nnf.cols - option.patch_size; i++) {
+      for (int k = 0; k < num; k++) {
+        const Image2f& nnf_k = nnf_list[k];
+        const Vec2f& nn = nnf_k.at<Vec2f>(j, i);
+        float dist = std::numeric_limits<float>::max();
+        bool updated = false;
+        distance_cahce.query(i, j, static_cast<int>(nn[0]),
+                             static_cast<int>(nn[1]), dist, updated);
+        if (updated) {
+          nnf.at<Vec2f>(j, i) = nn;
+        }
       }
     }
-  } else if (option.init_type == InitType::INITIAL) {
-    option.initial.copyTo(nnf);
-  } else {
-    return false;
   }
-
   return true;
 }
 
+inline bool InitializeRandomOnce(Image2f& nnf, int B_w, int B_h,
+                                 const Option& option,
+                                 std::default_random_engine& engine) {
+  std::uniform_int_distribution<> dist_w(0, B_w - 1 - option.patch_size);
+  std::uniform_int_distribution<> dist_h(0, B_h - 1 - option.patch_size);
+  for (int j = 0; j < nnf.rows - option.patch_size; j++) {
+    for (int i = 0; i < nnf.cols - option.patch_size; i++) {
+      Vec2f& val = nnf.at<Vec2f>(j, i);
+      val[0] = static_cast<float>(dist_w(engine) - i);
+      val[1] = static_cast<float>(dist_h(engine) - j);
+    }
+  }
+  return true;
+}
+
+inline bool InitializeRandomIterate(const Image3b& A, const Image3b& B,
+                                    Image2f& nnf, DistanceCache& distance_cache,
+                                    const Option& option,
+                                    std::default_random_engine& engine,
+                                    const Image2f& initial) {
+  (void)A;
+  std::vector<Image2f> nnf_list(option.initial_random_iter);
+  for (int i = 0; i < option.initial_random_iter; i++) {
+    nnf_list[i] = Image2f::zeros(nnf.rows, nnf.cols);
+    InitializeRandomOnce(nnf_list[i], B.cols, B.rows, option, engine);
+  }
+
+  if (!initial.empty()) {
+    nnf_list.push_back(initial);
+  }
+  return MergeMultipleNnfs(nnf_list, nnf, distance_cache, option);
+}
+
+inline bool Initialize(const Image3b& A, const Image3b& B, Image2f& nnf,
+                       DistanceCache& distance_cache, const Option& option,
+                       std::default_random_engine& engine) {
+  if (option.init_type == InitType::RANDOM) {
+    return InitializeRandomIterate(A, B, nnf, distance_cache, option, engine);
+  } else if (option.init_type == InitType::INITIAL) {
+    option.initial.copyTo(nnf);
+    return true;
+  } else if (option.init_type == InitType::INITIAL_RANDOM) {
+    return InitializeRandomIterate(A, B, nnf, distance_cache, option, engine,
+                                   option.initial);
+  }
+
+  return false;
+}
+
 inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
-                      const Image2f& nnf, const Image1f& distance) {
+                      const Image2f& nnf, const Image1f& distance,
+                      bool verbose) {
   Image3b vis_nnf, vis_distance;
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(debug_dir + "nnf_" + postfix + ".jpg", vis_nnf);
@@ -1302,7 +1415,9 @@ inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
   float max_d = 17000.0f;
   float min_d = 50.0f;
   nanopm::ColorizeDistance(distance, vis_distance, max_d, min_d, mean, stddev);
-  printf("distance mean %f, stddev %f\n", mean, stddev);
+  if (verbose) {
+    printf("distance mean %f, stddev %f\n", mean, stddev);
+  }
   nanopm::imwrite(debug_dir + "distance_" + postfix + ".jpg", vis_distance);
 
   return true;
