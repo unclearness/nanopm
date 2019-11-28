@@ -1060,15 +1060,15 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
     for (int i = 0; i < patch_size_x; i++) {
       auto& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       auto& B_val = B.at<Vec3b>(B_y + j, B_x + i);
-      std::array<float, 3> diff_list;
 
+      float sum_diff{0.0f};
       for (int c = 0; c < 3; c++) {
-        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
+        float diff = static_cast<float>(A_val[c] - B_val[c]);
+        sum_diff += (diff * diff);
       }
 
       // average of 3 channels
-      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
-      val += (diff * diff);
+      val += (sum_diff * frac);
     }
   }
   return true;
@@ -1083,15 +1083,14 @@ inline bool SSD(const Image3b& A, int A_x, int A_y, const Image3b& B, int B_x,
     for (int i = 0; i < patch_size_x; i++) {
       const Vec3b& A_val = A.at<Vec3b>(A_y + j, A_x + i);
       const Vec3b& B_val = B.at<Vec3b>(B_y + j, B_x + i);
-      std::array<float, 3> diff_list;
-
+      float sum_diff{0.0f};
       for (int c = 0; c < 3; c++) {
-        diff_list[c] = static_cast<float>(A_val[c] - B_val[c]);
+        float diff = static_cast<float>(A_val[c] - B_val[c]);
+        sum_diff += (diff * diff);
       }
 
       // average of 3 channels
-      float diff = (diff_list[0] + diff_list[1] + diff_list[2]) * frac;
-      val += (diff * diff);
+      val += (sum_diff * frac);
       if (val > current_min) {
         return false;
       }
