@@ -830,17 +830,17 @@ inline bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
 
 inline bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag,
                         float min_mag, unsigned char v) {
-  const double M_PI{3.14159265358979323846};  // pi
+  const double NANOPM_PI{3.14159265358979323846};  // pi
   Image3b vis_nnf_hsv;
   vis_nnf_hsv = Image3b::zeros(nnf.rows, nnf.cols);
 
-  float inv_2pi = static_cast<float>(1.0f / (2 * M_PI));
+  float inv_2pi = static_cast<float>(1.0f / (2 * NANOPM_PI));
   float inv_mag_factor = 1.0f / (max_mag - min_mag);
   for (int y = 0; y < vis_nnf_hsv.rows; y++) {
     for (int x = 0; x < vis_nnf_hsv.cols; x++) {
       const Vec2f& nn = nnf.at<Vec2f>(y, x);
 
-      float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + M_PI);
+      float angle = static_cast<float>(std::atan2(nn[1], nn[0]) + NANOPM_PI);
       float magnitude = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1]);
       float norm_magnitude = std::max(
           0.0f, std::min((magnitude - min_mag) * inv_mag_factor, 1.0f));
