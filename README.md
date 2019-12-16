@@ -8,9 +8,9 @@
 
 | |PatchMatch (350 ms. a single thread)|BruteForce as Ground Truth (3 min. 8 threads with OpenMP)|
 |---|---|---|
-|NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_nnf_20191120.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
-|Distance (white is higher error) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_dist_20191120.gif)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
-|Reconstruction (esimated src by using only patches in dst) |![](data/scenes2005/Art/reconstruction.jpg)|![](data/scenes2005/Art/reconstruction_bruteforce.jpg)||
+|NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/nnf.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
+|Distance (white is higher error) |![](https://raw.github.com/wiki/unclearness/nanopm/images/distance.gif)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
+|Reconstruction (esimated src by using only patches in dst) |![](https://raw.github.com/wiki/unclearness/nanopm/images/recon.gif)|![](data/scenes2005/Art/reconstruction_bruteforce.jpg)||
 
 ## Example applications
 
