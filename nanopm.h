@@ -864,16 +864,18 @@ inline bool Reconstruction(const Image2f& nnf, int patch_size, const Image3b& B,
   for (int j = 0; j < nnf.rows; j++) {
     for (int i = 0; i < nnf.cols; i++) {
       int index = i + j * nnf.cols;
-      Vec3b& color_ave = recon.at<Vec3b>(j, i);
-      Vec3f color_sum = {{0.0f, 0.0f, 0.0f}};
-      for (const auto& color : pixel_lists[index]) {
-        for (int c = 0; c < 3; c++) {
-          color_sum[c] += color[c];
+      if (!pixel_lists[index].empty()) {
+        Vec3b& color_ave = recon.at<Vec3b>(j, i);
+        Vec3f color_sum = {{0.0f, 0.0f, 0.0f}};
+        for (const auto& color : pixel_lists[index]) {
+          for (int c = 0; c < 3; c++) {
+            color_sum[c] += color[c];
+          }
         }
-      }
-      for (int c = 0; c < 3; c++) {
-        color_ave[c] = static_cast<unsigned char>(color_sum[c] /
-                                                  pixel_lists[index].size());
+        for (int c = 0; c < 3; c++) {
+          color_ave[c] = static_cast<unsigned char>(color_sum[c] /
+                                                    pixel_lists[index].size());
+        }
       }
     }
   }
