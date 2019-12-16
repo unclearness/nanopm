@@ -1,20 +1,19 @@
 # NanoPM, single header only PatchMatch
 **NanoPM** is a single header-only implementation of PatchMatch algorithm written in C++. Could be used for variety of applications.
 
+|src|dst|
+|---|---|
+|![](data/scenes2005/Art/view1.png)|![](data/scenes2005/Art/view5.png)|
+
+
 | |PatchMatch (350 ms. a single thread)|BruteForce as Ground Truth (3 min. 8 threads with OpenMP)|
 |---|---|---|
 |NNF (Nearest Neighbor Field) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_nnf_20191120.gif)|![](data/scenes2005/Art/nnf_bruteforce.jpg)|
-|Distance|![](https://raw.github.com/wiki/unclearness/nanopm/images/art_dist_20191120.gif)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
+|Distance (white is higher error) |![](https://raw.github.com/wiki/unclearness/nanopm/images/art_dist_20191120.gif)|![](data/scenes2005/Art/distance_bruteforce.jpg)|
+|Reconstruction (esimated src by using only patches in dst) |![](data/scenes2005/Art/reconstruction.jpg)|![](data/scenes2005/Art/reconstruction_bruteforce.jpg)||
 
 ## Example applications
 
-- dense optical flow
-
-|src|dst|optical flow|
-|---|---|---|
-|![](data/scenes2005/Art/view1.png)|![](data/scenes2005/Art/view5.png)|![](data/scenes2005/Art/nnf.jpg)|
-
-- image synthesis (WIP)
 - inpainting (WIP)
 
 # Optional Dependencies

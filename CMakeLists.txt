@@ -90,9 +90,10 @@ include_directories(${STB_INSTALL_DIR})
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 if (NOT hasParent)
-  add_executable(dense_optical_flow
-    example/dense_optical_flow.cc)
-  target_link_libraries(dense_optical_flow
+  add_executable(reconstruction
+    nanopm.h
+    example/reconstruction.cc)
+  target_link_libraries(reconstruction
   ${OpenCV_LIBS}
   )
 endif()

@@ -127,7 +127,7 @@ class Image {
   int channels_{std::tuple_size<T>::value};
   int width_{-1};
   int height_{-1};
-  std::shared_ptr<std::vector<T> > data_{nullptr};
+  std::shared_ptr<std::vector<T>> data_{nullptr};
 
   void Init(int width, int height) {
     if (width < 1 || height < 1) {
@@ -462,7 +462,7 @@ struct Option {
 
   InitType init_type = InitType::RANDOM;
   Image2f initial;
-  int initial_random_iter = 3;
+  int initial_random_iter = 1;
 
   unsigned int random_seed = 0;  // for repeatability
 
@@ -489,6 +489,9 @@ bool Compute(const unsigned char* A, int A_w, int A_h, const unsigned char* B,
 // brute force method for reference as Ground Truth
 bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
                 Image1f& distance, const Option& option);
+
+bool Reconstruction(const Image2f& nnf, int patch_size, const Image3b& B,
+                    Image3b& recon);
 
 bool ColorizeNnf(const Image2f& nnf, Image3b& vis_nnf, float max_mag = 100.0f,
                  float min_mag = 0.0f, unsigned char v = 255);
@@ -622,7 +625,8 @@ bool UpdateOffsetWithGuard(Vec2f& offset, int patch_size, int x, int y,
                            int x_max, int y_max);
 
 bool DebugDump(const std::string& debug_dir, const std::string& postfix,
-               const Image2f& nnf, const Image1f& distance, bool verbose);
+               const Image2f& nnf, const Image1f& distance, const Image3b& B,
+               int patch_size, bool verbose);
 
 template <typename T = double>
 class Timer {
@@ -737,7 +741,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
           impl::DebugDump(
               option.debug_dir,
               std::to_string(iter) + "_" + std::to_string(j / (nnf.rows / 4)),
-              nnf, distance_cache.min_distance(), option.verbose);
+              nnf, distance_cache.min_distance(), B, option.patch_size,
+              option.verbose);
         }
 
         for (int i = 0; i < nnf.cols - option.patch_size; i++) {
@@ -755,7 +760,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
           impl::DebugDump(option.debug_dir,
                           std::to_string(iter) + "_" +
                               std::to_string(4 - j / (nnf.rows / 4)),
-                          nnf, distance_cache.min_distance(), option.verbose);
+                          nnf, distance_cache.min_distance(), B,
+                          option.patch_size, option.verbose);
         }
 
         for (int i = nnf.cols - option.patch_size - 1; i >= 0; i--) {
@@ -771,7 +777,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
 
     if (!option.debug_dir.empty()) {
       impl::DebugDump(option.debug_dir, std::to_string(iter) + "_4", nnf,
-                      distance_cache.min_distance(), option.verbose);
+                      distance_cache.min_distance(), B, option.patch_size,
+                      option.verbose);
     }
   }
   timer.End();
@@ -825,6 +832,51 @@ inline bool BruteForce(const Image3b& A, const Image3b& B, Image2f& nnf,
     }
   }
 
+  return true;
+}
+
+inline bool Reconstruction(const Image2f& nnf, int patch_size, const Image3b& B,
+                           Image3b& recon) {
+  std::vector<std::vector<Vec3b>> pixel_lists(nnf.cols * nnf.rows);
+
+  // collect pixel values
+#ifdef NANOPM_USE_OPENMP
+#pragma omp parallel for
+#endif
+  for (int j = 0; j < nnf.rows - patch_size; j++) {
+    for (int i = 0; i < nnf.cols - patch_size; i++) {
+      // iterate inside the patch
+      for (int jj = j; jj < j + patch_size; jj++) {
+        for (int ii = i; ii < i + patch_size; ii++) {
+          const Vec2f& current_nn = nnf.at<Vec2f>(jj, ii);
+          int index = ii + jj * nnf.cols;
+          const Vec3b& color =
+              B.at<Vec3b>(static_cast<int>(current_nn[1] + jj),
+                          static_cast<int>(current_nn[0] + ii));
+          pixel_lists[index].push_back(color);
+        }
+      }
+    }
+  }
+
+  // take average
+  recon = Image3b::zeros(nnf.rows, nnf.cols);
+  for (int j = 0; j < nnf.rows; j++) {
+    for (int i = 0; i < nnf.cols; i++) {
+      int index = i + j * nnf.cols;
+      Vec3b& color_ave = recon.at<Vec3b>(j, i);
+      Vec3f color_sum = {{0.0f, 0.0f, 0.0f}};
+      for (const auto& color : pixel_lists[index]) {
+        for (int c = 0; c < 3; c++) {
+          color_sum[c] += color[c];
+        }
+      }
+      for (int c = 0; c < 3; c++) {
+        color_ave[c] = static_cast<unsigned char>(color_sum[c] /
+                                                  pixel_lists[index].size());
+      }
+    }
+  }
   return true;
 }
 
@@ -1417,7 +1469,7 @@ inline bool Initialize(const Image3b& A, const Image3b& B, Image2f& nnf,
 
 inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
                       const Image2f& nnf, const Image1f& distance,
-                      bool verbose) {
+                      const Image3b& B, int patch_size, bool verbose) {
   Image3b vis_nnf, vis_distance;
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(debug_dir + "nnf_" + postfix + ".jpg", vis_nnf);
@@ -1429,6 +1481,10 @@ inline bool DebugDump(const std::string& debug_dir, const std::string& postfix,
     printf("distance mean %f, stddev %f\n", mean, stddev);
   }
   nanopm::imwrite(debug_dir + "distance_" + postfix + ".jpg", vis_distance);
+
+  Image3b recon;
+  Reconstruction(nnf, patch_size, B, recon);
+  nanopm::imwrite(debug_dir + "recon_" + postfix + ".jpg", recon);
 
   return true;
 }
