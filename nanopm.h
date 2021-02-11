@@ -12,10 +12,9 @@
 
 #pragma once
 
-#include <cstdarg>
-
 #include <array>
 #include <chrono>
+#include <cstdarg>
 #include <random>
 #include <string>
 #include <vector>
@@ -726,7 +725,8 @@ inline bool Compute(const Image3b& A, const Image3b& B, Image2f& nnf,
   // iteration
   timer.Start();
   for (int iter = 0; iter < option.max_iter; iter++) {
-    float radius = std::max(1.0f, option.w * std::pow(option.alpha, iter));
+    float radius = std::max(
+        1.0f, static_cast<float>(option.w * std::pow(option.alpha, iter)));
     if (option.verbose) {
       printf("iter %d radious %f \n", iter, radius);
     }
