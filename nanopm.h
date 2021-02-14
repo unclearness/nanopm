@@ -15,6 +15,7 @@
 #include <array>
 #include <chrono>
 #include <cstdarg>
+#include <memory>
 #include <random>
 #include <string>
 #include <vector>
