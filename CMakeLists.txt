@@ -12,20 +12,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 # .dll and .exe
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin) 
 
-if (WIN32)
-# option for Visual Studio
-# -EHsc (enable proper Exxeption Handling) needs to avoid C4530
-# -Wall is too noisy so that set -W4. 
-# https://docs.microsoft.com/en-us/cpp/build/reference/compiler-option-warning-level?view=vs-2017
-# "However, for a new project, it may be best to use /W4 in all compilations;
-# this will ensure the fewest possible hard-to-find code defects."
-set(CMAKE_CXX_FLAGS "-std=c++14 -W4 -EHsc")
-
-else()
-# g++ option for *nix
-set(CMAKE_CXX_FLAGS  "-std=c++14 -Wall -O2")
-
-endif()
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
 
 get_directory_property(hasParent PARENT_DIRECTORY)
 if(hasParent)
@@ -57,7 +45,7 @@ if(NOT DEFINED TINYCOLORMAP_INSTALL_DIR)
 endif()
 
 # switch for optional libraries
-option(NANOPM_USE_OPENMP "Use OpenMP to enable parallelization" OFF)
+option(NANOPM_USE_OPENMP "Use OpenMP to enable parallelization" ON)
 message("NANOPM_USE_OPENMP: ${NANOPM_USE_OPENMP}")
 if(NANOPM_USE_OPENMP)
   add_definitions(-DNANOPM_USE_OPENMP)

@@ -7,16 +7,23 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #endif
+
 #include "nanopm.h"
 
 #include <numeric>
 #include <vector>
 
-// #define TEST_BRUTE_FORCE
+namespace {
+constexpr bool output_debug_images =
+    false;  // Set to true to output debug images
+constexpr bool test_brute_force =
+    true;  // Set to true to test brute force method
+}  // namespace
 
 int main(int argc, char* argv[]) {
   (void)argc;
   (void)argv;
+  nanopm::impl::Timer<> timer;
 
   std::string data_dir = "../data/scenes2005/Art/";
 
@@ -29,8 +36,19 @@ int main(int argc, char* argv[]) {
   nanopm::Image1f distance;
   nanopm::Option option;
   nanopm::Image3b vis_nnf, vis_distance, recon;
-  option.debug_dir = "./";
+
+  if (output_debug_images) {
+    option.verbose = true;
+    option.debug_dir = "./";
+  } else {
+    option.verbose = false;
+    option.debug_dir = "";
+  }
+
+  timer.Start();
   nanopm::Compute(A, B, nnf, distance, option);
+  timer.End();
+  printf("nanopm::Compute %fms\n", timer.elapsed_msec());
   nanopm::ColorizeNnf(nnf, vis_nnf);
   nanopm::imwrite(data_dir + "nnf.jpg", vis_nnf);
   float mean, stddev;
@@ -42,19 +60,18 @@ int main(int argc, char* argv[]) {
   nanopm::Reconstruction(nnf, option.patch_size, B, recon);
   nanopm::imwrite(data_dir + "reconstruction.jpg", recon);
 
-#ifdef TEST_BRUTE_FORCE
-  nanopm::impl::Timer<> timer;
-  timer.Start();
-  nanopm::BruteForce(A, B, nnf, distance, option);
-  timer.End();
-  printf("nanopm::BruteForce %fms\n", timer.elapsed_msec());
-  nanopm::ColorizeNnf(nnf, vis_nnf);
-  nanopm::imwrite(data_dir + "nnf_bruteforce.jpg", vis_nnf);
-  nanopm::ColorizeDistance(distance, vis_distance, max_d, min_d, mean, stddev);
-  nanopm::imwrite(data_dir + "distance_bruteforce.jpg", vis_distance);
-  nanopm::Reconstruction(nnf, option.patch_size, B, recon);
-  nanopm::imwrite(data_dir + "reconstruction_bruteforce.jpg", recon);
-#endif
-
+  if (test_brute_force) {
+    timer.Start();
+    nanopm::BruteForce(A, B, nnf, distance, option);
+    timer.End();
+    printf("nanopm::BruteForce %fms\n", timer.elapsed_msec());
+    nanopm::ColorizeNnf(nnf, vis_nnf);
+    nanopm::imwrite(data_dir + "nnf_bruteforce.jpg", vis_nnf);
+    nanopm::ColorizeDistance(distance, vis_distance, max_d, min_d, mean,
+                             stddev);
+    nanopm::imwrite(data_dir + "distance_bruteforce.jpg", vis_distance);
+    nanopm::Reconstruction(nnf, option.patch_size, B, recon);
+    nanopm::imwrite(data_dir + "reconstruction_bruteforce.jpg", recon);
+  }
   return 0;
 }
