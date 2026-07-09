@@ -842,9 +842,8 @@ inline bool Reconstruction(const Image2f& nnf, int patch_size, const Image3b& B,
   std::vector<std::vector<Vec3b>> pixel_lists(nnf.cols * nnf.rows);
 
   // collect pixel values
-#ifdef NANOPM_USE_OPENMP
-#pragma omp parallel for
-#endif
+  // Not parallelized: patch windows overlap across rows, so multiple threads
+  // would push_back into the same pixel_lists[index] and corrupt the heap.
   for (int j = 0; j < nnf.rows - patch_size; j++) {
     for (int i = 0; i < nnf.cols - patch_size; i++) {
       // iterate inside the patch

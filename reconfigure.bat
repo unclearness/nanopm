@@ -9,7 +9,9 @@ cd win_build
 IF EXIST CMakeCache.txt (
     del CMakeCache.txt
 )
-IF EXIST "C:\\Program Files\\Microsoft Visual Studio\\2022\\" (
+IF EXIST "C:\\Program Files\\Microsoft Visual Studio\\18\\" (
+    cmake -G "Visual Studio 18 2026" ..
+) ELSE IF EXIST "C:\\Program Files\\Microsoft Visual Studio\\2022\\" (
     cmake -G "Visual Studio 17 2022"  ..
 ) ELSE IF EXIST "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\" (
     cmake -G "Visual Studio 16 2019" ..
